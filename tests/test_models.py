@@ -141,10 +141,17 @@ def test_document_summary_url_validation():
         summary="Summary",
     )
 
-    # Invalid URL
+    # Local file path (now allowed)
+    DocumentSummary(
+        resource_url="ed342efd-e1ac-4def-9276-3e16ae7c2388-jackson-george-70c882a3-0e26-4748-ac19-dc74687f9436-certificate.pdf",
+        title="Doc",
+        summary="Summary",
+    )
+
+    # Invalid URL (Insecure)
     with pytest.raises(ValidationError):
         DocumentSummary(
-            resource_url="not-a-url",
+            resource_url="http://example.com/doc.pdf",
             title="Doc",
             summary="Summary",
         )
