@@ -74,20 +74,20 @@ class TopicItem(BaseModel):
 
 
 def validate_url(v: str) -> str:
-    """Validate URL and enforce HTTPS."""
+    """Validate URL and enforce HTTPS, or allow local file paths."""
+    # Allow local file paths that don't look like URLs
+    if "://" not in v and not v.startswith("http"):
+        # This is a local file path, accept it
+        return v
+
+    # It's a URL, enforce HTTPS
     try:
-        # Basic validation using AnyUrl
         url = AnyUrl(v)
-
-        # Enforce HTTPS for all URLs
-        # In Pydantic v2, AnyUrl is a string-like object with extra attributes
         scheme = getattr(url, "scheme", None)
-
         if scheme != "https":
             raise ValueError(
                 f"Insecure URL scheme '{scheme}'. Only https:// is allowed."
             )
-
         return str(url)
     except Exception as e:
         if isinstance(e, ValueError) and "Insecure URL scheme" in str(e):
