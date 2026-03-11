@@ -40,6 +40,7 @@ from src.backend.models import ActionableItem, Message, Priority, DocumentSummar
 from src.backend.llm_client import LLMClient, LLMError
 from src.backend.topic_extractor import TopicExtractor
 from src.backend.document_parser import DocumentParser
+from src.backend.utils import redact_pii
 
 
 def format_timestamp(ts: Optional[str]) -> str:
@@ -377,7 +378,7 @@ def list_groups(db: WhatsAppDB, days_active: Optional[int] = None) -> None:
             if group["name"] and group["name"].strip()
             else f"[Unnamed Group: {group['jid']}]"
         )
-        logger.info(f"  {i}. {display_name} [{group['jid']}]{activity}")
+        logger.info(f"  {i}. {display_name} [{redact_pii(group['jid'])}]{activity}")
 
 
 def extract_from_group(
@@ -444,10 +445,10 @@ def extract_from_group(
         )
         return ""
 
-    logger.info(f"Extracting from: {group_name} ({group_jid})")
+    logger.info(f"Extracting from: {group_name} ({redact_pii(group_jid)})")
 
     messages = db.get_messages_by_group(group_jid, limit, days)
-    logger.debug(f"Fetched {len(messages)} messages from group {group_jid}")
+    logger.debug(f"Fetched {len(messages)} messages from group {redact_pii(group_jid)}")
 
     if not messages:
         logger.info(
@@ -889,7 +890,7 @@ def main():
 
     # Setup logging based on debug flag
     setup_logging(args.debug)
-    logger.debug(f"Starting CLI with arguments: {args}")
+    logger.debug(f"Starting CLI with arguments: {redact_pii(str(args))}")
 
     # Validate db-path
     try:
