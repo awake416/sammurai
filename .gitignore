@@ -227,6 +227,7 @@ logs/
 .DS_Store
 Thumbs.db
 
-# Keep config.yaml private
-config.yaml
+# Git Worktrees
+.worktrees/
+worktrees/
 
