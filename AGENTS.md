@@ -2,9 +2,9 @@
 
 > **Note to AI Agents:** There are no `.cursorrules` or `.github/copilot-instructions.md` files in this repository. This `AGENTS.md` file is your single source of truth for working in this project.
 
-## Jira Project Anchor
-- Primary Project: COST (reusing an existing project)
-- Scope: You are only permitted to read/update issues within the COST project.
+## GitHub Project Anchor
+- Primary Project: https://github.com/users/awake416/projects/2
+- Scope: You are only permitted to read/update issues within the specified GitHub Project.
 
 ## Decision Boundaries
 - **AUTONOMOUS**: Generating Pydantic models, unit tests, and refactoring logic.
@@ -16,7 +16,7 @@
 - Quality: Zero "Critical" issues allowed in SonarQube analysis.
 - Value Hierarchy: Accuracy > Privacy > UI Consistency > Speed.
 
-## Jira Stage Hierarchy (COST Project)
+## Project Stage Hierarchy
 **Linear Flow:** TODO → Requirement Gathering → Prioritized → Development → Code Review → UAT → QA → QA Approved → Production Deployed
 
 **Available Transitions from TODO:** Evaluating Requirements (61), Requirement Gathering (321), De-prioritized (201), Closed (351)
