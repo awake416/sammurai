@@ -1,4 +1,4 @@
-# Parallel Processing Architecture (COST-5)
+# Parallel Processing Architecture
 
 This document describes the architecture and data flow for the parallel processing implementation in the WhatsApp Action Agent.
 
