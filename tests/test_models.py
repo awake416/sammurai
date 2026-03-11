@@ -90,7 +90,7 @@ def test_topic_summary_models():
         sample_messages=["Where to park?"],
     )
     doc = DocumentSummary(
-        resource_url="http://example.com/rules.pdf",
+        resource_url="https://example.com/rules.pdf",
         title="Parking Rules",
         summary="Rules for parking",
     )

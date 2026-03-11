@@ -27,7 +27,7 @@ def test_extract_resources(mock_completion):
     ]
     mock_completion.return_value = mock_response
 
-    client = LLMClient(base_url="http://test", api_key="test")
+    client = LLMClient(base_url="https://test", api_key="test")
     result = client.extract_action_item("John please review https://example.com")
 
     assert result is not None
@@ -64,7 +64,7 @@ def test_extract_batch_true_batching(mock_completion):
     ]
     mock_completion.return_value = mock_response
 
-    client = LLMClient(base_url="http://test", api_key="test")
+    client = LLMClient(base_url="https://test", api_key="test")
     messages = [
         {
             "message": "John please review the doc",
@@ -90,18 +90,18 @@ def test_extract_batch_true_batching(mock_completion):
 def test_llm_client_model_passing():
     """Test that LLMClient trusts the model name and passes it directly."""
     # Case 1: model has no prefix -> should NOT prepend 'openai/' anymore
-    client = LLMClient(base_url="http://test", api_key="test", model="glm-5")
+    client = LLMClient(base_url="https://test", api_key="test", model="glm-5")
     assert client.model == "glm-5"
 
     # Case 2: model already has prefix -> should remain unchanged
     client = LLMClient(
-        base_url="http://test", api_key="test", model="anthropic/claude-3"
+        base_url="https://test", api_key="test", model="anthropic/claude-3"
     )
     assert client.model == "anthropic/claude-3"
 
     # Case 3: model with multiple slashes
     client = LLMClient(
-        base_url="http://test", api_key="test", model="custom/provider/model"
+        base_url="https://test", api_key="test", model="custom/provider/model"
     )
     assert client.model == "custom/provider/model"
 
@@ -109,7 +109,7 @@ def test_llm_client_model_passing():
 @patch("src.backend.llm_client.litellm.completion")
 def test_llm_client_rejects_jokes(mock_completion):
     """Test that the client rejects jokes based on is_action_item flag or low confidence."""
-    client = LLMClient(base_url="http://test", api_key="test")
+    client = LLMClient(base_url="https://test", api_key="test")
 
     # Case 1: LLM correctly identifies it as NOT an action item
     mock_response_1 = MagicMock()
@@ -163,7 +163,7 @@ def test_extract_topics(mock_completion):
     ]
     mock_completion.return_value = mock_response
 
-    client = LLMClient(base_url="http://test", api_key="test")
+    client = LLMClient(base_url="https://test", api_key="test")
     messages = [{"message": "msg1", "sender": "Alice"}]
     result = client.extract_topics(messages)
 
@@ -185,8 +185,8 @@ def test_summarize_document(mock_completion):
     ]
     mock_completion.return_value = mock_response
 
-    client = LLMClient(base_url="http://test", api_key="test")
-    result = client.summarize_document("Some content", url="http://example.com")
+    client = LLMClient(base_url="https://test", api_key="test")
+    result = client.summarize_document("Some content", url="https://example.com")
 
     assert result is not None
     assert result["title"] == "Doc Title"
@@ -205,7 +205,7 @@ def test_tag_items_with_topics(mock_completion):
     ]
     mock_completion.return_value = mock_response
 
-    client = LLMClient(base_url="http://test", api_key="test")
+    client = LLMClient(base_url="https://test", api_key="test")
     items = [{"task": "Fix parking"}]
     topic_names = ["Parking", "Security"]
     result = client.tag_items_with_topics(items, topic_names)
@@ -232,7 +232,7 @@ def test_extract_action_item_injects_current_date(mock_completion):
         mock_now.strftime.return_value = "2026-03-10"
         mock_datetime.now.return_value = mock_now
 
-        client = LLMClient(base_url="http://test", api_key="test")
+        client = LLMClient(base_url="https://test", api_key="test")
         client.extract_action_item("test message")
 
         # Verify timezone.utc was passed to datetime.now()
@@ -259,7 +259,7 @@ def test_extract_batch_injects_current_date(mock_completion):
         mock_now.strftime.return_value = "2026-03-10"
         mock_datetime.now.return_value = mock_now
 
-        client = LLMClient(base_url="http://test", api_key="test")
+        client = LLMClient(base_url="https://test", api_key="test")
         client.extract_batch([{"message": "test message"}])
 
         # Verify timezone.utc was passed to datetime.now()

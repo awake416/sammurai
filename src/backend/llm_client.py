@@ -139,6 +139,18 @@ Rules:
                 "LLM Configuration Error: LiteLLM base URL is missing. "
                 "Please set the LITELLM_BASE_URL environment variable."
             )
+
+        # Enforce HTTPS for base_url (except for localhost/127.0.0.1)
+        from urllib.parse import urlparse
+
+        parsed_base = urlparse(self.base_url)
+        is_local = parsed_base.hostname in ("localhost", "127.0.0.1", "::1")
+        if not is_local and not self.base_url.startswith("https://"):
+            raise ValueError(
+                f"LLM Configuration Error: Insecure LITELLM_BASE_URL '{self.base_url}'. "
+                "Production URLs must use https://."
+            )
+
         if not self.api_key:
             raise ValueError(
                 "LLM Authentication Error: API key is missing. "
@@ -207,7 +219,7 @@ If it's NOT an action item, respond with:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=0.1,
-                api_key=self.api_key or "sk-dummy",
+                api_key=self.api_key,
                 base_url=self.base_url,
                 custom_llm_provider="openai",
                 timeout=120,
@@ -279,7 +291,7 @@ If it's NOT an action item, respond with:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=temperature,
-                api_key=self.api_key or "sk-dummy",
+                api_key=self.api_key,
                 base_url=self.base_url,
                 custom_llm_provider="openai",
                 timeout=120,
@@ -486,7 +498,7 @@ Respond with JSON in this exact format:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=0.1,
-                api_key=self.api_key or "sk-dummy",
+                api_key=self.api_key,
                 base_url=self.base_url,
                 custom_llm_provider="openai",
                 timeout=60,

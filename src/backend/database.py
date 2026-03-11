@@ -4,6 +4,8 @@ import threading
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
+from src.backend.utils import redact_pii
+
 # Configure logger
 logger = logging.getLogger(__name__)
 
@@ -131,7 +133,7 @@ class WhatsAppDB:
             ORDER BY last_activity DESC
         """
 
-        logger.debug(f"Executing query: {query} with params: {params}")
+        logger.debug(f"Executing query: {query} with params: [REDACTED]")
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)
@@ -160,11 +162,11 @@ class WhatsAppDB:
         """
         # Early exit: if input is already a group JID, return it directly
         if "@g.us" in group_input:
-            logger.debug(f"Input appears to be a direct JID: {group_input}")
+            logger.debug(f"Input appears to be a direct JID: {redact_pii(group_input)}")
             return group_input
 
         # Otherwise search by name in both chats and messages tables
-        logger.debug(f"Searching for group by name: {group_input}")
+        logger.debug(f"Searching for group by name: {redact_pii(group_input)}")
         query = """
                 SELECT jid FROM (
                     SELECT chat_jid as jid, chat_name as name, 1 as priority FROM messages 
@@ -180,14 +182,14 @@ class WhatsAppDB:
                 LIMIT 1
             """
         params = (f"%{group_input}%",)
-        logger.debug(f"Executing query: {query} with params: {params}")
+        logger.debug(f"Executing query: {query} with params: [REDACTED]")
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)
         row = cursor.fetchone()
 
         if row is None:
-            logger.warning(f"No group found matching: {group_input}")
+            logger.warning(f"No group found matching: {redact_pii(group_input)}")
             return None
 
         logger.debug("Found matching group JID")
@@ -249,11 +251,13 @@ class WhatsAppDB:
         Returns:
             List of dicts with msg_id, text, sender_name, ts, chat_name, chat_jid.
         """
-        logger.debug(f"Fetching messages for group: {group_jid}")
+        logger.debug(f"Fetching messages for group: {redact_pii(group_jid)}")
 
         # Law of the Early Exit: Validate input first
         if days is not None and days < 0:
             raise ValueError("days must be a non-negative integer")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
 
         base_query = """
             SELECT 
@@ -275,14 +279,14 @@ class WhatsAppDB:
         if days is not None:
             where_clause += " AND ts >= strftime('%s', 'now', ?)"
             params.append(f"-{days} days")
-            order_limit = "ORDER BY ts DESC"
-        else:
-            order_limit = "ORDER BY ts DESC LIMIT ?"
-            params.append(limit)
+
+        # Always enforce a limit to prevent OOM
+        order_limit = "ORDER BY ts DESC LIMIT ?"
+        params.append(limit)
 
         query = f"{base_query} {where_clause} {order_limit}"
 
-        logger.debug(f"Executing query: {query} with params: {params}")
+        logger.debug(f"Executing query: {query} with params: [REDACTED]")
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)
@@ -314,6 +318,8 @@ class WhatsAppDB:
         # Law of the Early Exit: Validate input first
         if days is not None and days < 0:
             raise ValueError("days must be a non-negative integer")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
 
         base_query = """
             SELECT 
@@ -335,14 +341,14 @@ class WhatsAppDB:
         if days is not None:
             where_clause += " AND ts >= strftime('%s', 'now', ?)"
             params.append(f"-{days} days")
-            order_limit = "ORDER BY ts DESC"
-        else:
-            order_limit = "ORDER BY ts DESC LIMIT ?"
-            params.append(limit)
+
+        # Always enforce a limit to prevent OOM
+        order_limit = "ORDER BY ts DESC LIMIT ?"
+        params.append(limit)
 
         query = f"{base_query} {where_clause} {order_limit}"
 
-        logger.debug(f"Executing query: {query} with params: {params}")
+        logger.debug(f"Executing query: {query} with params: [REDACTED]")
         conn = self._get_connection()
         cursor = conn.cursor()
         cursor.execute(query, params)

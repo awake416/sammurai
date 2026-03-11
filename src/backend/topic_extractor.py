@@ -1,6 +1,10 @@
 import logging
 import httpx
 import os
+import ipaddress
+import socket
+import ssl
+from urllib.parse import urlparse
 from typing import List, Optional
 from bs4 import BeautifulSoup
 from src.backend.models import (
@@ -11,6 +15,8 @@ from src.backend.models import (
 )
 from src.backend.llm_client import LLMClient
 from src.backend.document_parser import DocumentParser
+from src.backend.utils import redact_pii
+
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +46,109 @@ class TopicExtractor:
 
         return [TopicItem(**topic) for topic in result["topics"]]
 
+    def _is_safe_url(self, url: str) -> Optional[str]:
+        """Validate URL to prevent SSRF. Returns resolved IP if safe, None otherwise."""
+        try:
+            parsed = urlparse(url)
+            # Restrict to https only
+            if parsed.scheme != "https":
+                logger.warning(
+                    f"Insecure URL scheme: {parsed.scheme}. Only https is allowed."
+                )
+                return None
+
+            hostname = parsed.hostname
+            if not hostname:
+                return None
+
+            # Resolve hostname to IP to check for private ranges
+            try:
+                # Use getaddrinfo to support both IPv4 and IPv6
+                addr_info = socket.getaddrinfo(hostname, None)
+                ips = [info[4][0] for info in addr_info]
+            except (socket.gaierror, ValueError):
+                # If we can't resolve it, it might be an invalid hostname or an IP already
+                try:
+                    ip = ipaddress.ip_address(hostname)
+                    ips = [str(ip)]
+                except ValueError:
+                    return None
+
+            safe_ip = None
+            for ip_str in ips:
+                ip = ipaddress.ip_address(ip_str)
+                if (
+                    ip.is_loopback
+                    or ip.is_private
+                    or ip.is_link_local
+                    or ip.is_multicast
+                ):
+                    logger.warning(f"Blocked internal/private IP: {ip}")
+                    return None
+                # Use the first safe IP found
+                if safe_ip is None:
+                    safe_ip = ip_str
+
+            return safe_ip
+        except Exception as e:
+            logger.error(f"URL validation error: {e}")
+            return None
+
     def summarize_document(
         self, url: str, file_path: Optional[str] = None
     ) -> DocumentSummary:
         """Fetches URL content or reads local file and extracts summary using LLM."""
+        # SSRF Protection: Validate URL before any processing if no local file
+        use_local = bool(
+            file_path and os.path.exists(file_path) and self.document_parser
+        )
+        safe_ip = None
+
+        if not use_local:
+            safe_ip = self._is_safe_url(url)
+            if not safe_ip:
+                raise ValueError(f"Insecure or invalid URL: {url}")
+
         try:
-            if file_path and os.path.exists(file_path) and self.document_parser:
+            if use_local:
                 # Use local file if provided and exists
-                clean_text = self.document_parser.extract_text(file_path)
+                clean_text = self.document_parser.extract_text(file_path)  # type: ignore
             else:
+                parsed = urlparse(url)
+                # Construct URL with IP to prevent DNS rebinding (TOCTOU)
+                # We connect directly to the IP but pass the original hostname in the Host header.
+                # safe_ip is guaranteed to be set here because use_local is False
+
+                # Preserve port if it exists
+                safe_netloc = f"{safe_ip}:{parsed.port}" if parsed.port else safe_ip
+
+                from urllib.parse import urlunparse
+
+                target_url = urlunparse(
+                    (
+                        parsed.scheme,
+                        safe_netloc,
+                        parsed.path,
+                        parsed.params,
+                        parsed.query,
+                        parsed.fragment,
+                    )
+                )
+
                 # Parse Don't Validate: Fetch content first
-                response = httpx.get(url, timeout=30.0, follow_redirects=True)
+                # Use a custom transport to handle SNI and certificate verification properly
+                # when connecting to an IP address.
+                ctx = ssl.create_default_context()
+                transport = httpx.HTTPTransport(verify=ctx)
+
+                response = httpx.get(
+                    target_url,
+                    headers={"Host": parsed.hostname},
+                    extensions={"sni_hostname": parsed.hostname.encode()},
+                    transport=transport,
+                    timeout=30.0,
+                    follow_redirects=False,
+                )
                 response.raise_for_status()
 
                 # Extract text using BeautifulSoup
@@ -72,7 +170,9 @@ class TopicExtractor:
             truncated_content = clean_text[:16000]
         except Exception as e:
             # Fail Fast, Fail Loud (log error and return error summary)
-            logger.error(f"Failed to fetch or parse document {file_path or url}: {e}")
+            logger.error(
+                f"Failed to fetch or parse document {redact_pii(file_path or url)}: {e}"
+            )
             return DocumentSummary(
                 resource_url=url,
                 title="Error",
