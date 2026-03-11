@@ -1,0 +1,43 @@
+# WhatsApp Action Item Extractor Configuration
+
+llm:
+  # LiteLLM configuration
+  # Set these via environment variables for security:
+  #   export LITELLM_BASE_URL="https://your-litellm-url.com"
+  #   export LITELLM_API_KEY="your-api-key"
+  
+  # Model to use (default: gpt-4)
+  model: "gemini-2.0-flash"
+  
+  # Confidence threshold (only include results above this)
+  confidence_threshold: 0.75
+  
+  # Batch size for processing messages
+  batch_size: 10
+
+# Database
+database:
+  # Path to wacli database
+  path: "~/.wacli/wacli.db"
+
+# Parser
+parser:
+  # Use LLM parser (set to false to use rule-based only)
+  use_llm: true
+  
+  # Fallback to rule-based if LLM fails
+  fallback_to_rule_based: true
+
+# Parallel processing
+parallel:
+  # List of group names to process by default if no group or --all is specified
+  groups:
+    - "GROUP_ID_1"
+    - "GROUP_ID_2"
+    - "GROUP_ID_3"
+   
+  # Number of concurrent groups to process
+  workers: 5
+  
+  # Number of concurrent batches to process within a group
+  batch_workers: 3
