@@ -1,5 +1,7 @@
 # Sammurai - WhatsApp Group Analyzer with AI
 
+[![gitcgr](https://gitcgr.com/badge/awake416/sammurai.svg)](https://gitcgr.com/awake416/sammurai)
+
 Sammurai is an intelligent WhatsApp group analyzer that uses AI to help you stay on top of conversations. It extracts topics, identifies action items, summarizes shared documents, and generates daily digests—saving you time by automating the process of skimming through multiple group chats.
 
 ## Features
