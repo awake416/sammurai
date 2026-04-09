@@ -105,7 +105,69 @@ Component Overview:
    python -m spacy download en_core_web_sm
    ```
 
-### Configuration
+#### WhatsApp Sync Service
+
+Sammurai reads from the local wacli database. To keep messages up to date automatically, run wacli as a systemd user service:
+
+1. **Install wacli** (requires Go and Homebrew):
+   ```bash
+   brew install steipete/tap/wacli
+   ```
+
+   If you hit a "Client outdated (405)" error, rebuild with the latest whatsmeow:
+   ```bash
+   git clone https://github.com/steipete/wacli.git /tmp/wacli-build
+   cd /tmp/wacli-build
+   go get go.mau.fi/whatsmeow@latest && go mod tidy
+   CGO_CFLAGS="-DSQLITE_ENABLE_FTS5" CGO_LDFLAGS="-lm" go build -o wacli ./cmd/wacli
+   sudo cp wacli "$(which wacli)"
+   ```
+
+2. **Authenticate** (one-time — scan the QR code with your phone):
+   ```bash
+   wacli auth
+   ```
+
+3. **Create the systemd user service**:
+   ```bash
+   mkdir -p ~/.config/systemd/user
+   cat > ~/.config/systemd/user/wacli-sync.service << 'EOF'
+   [Unit]
+   Description=WhatsApp CLI Sync
+   After=network-online.target
+
+   [Service]
+   ExecStart=/home/linuxbrew/.linuxbrew/bin/wacli sync --download-media --follow --refresh-contacts --refresh-groups
+   Restart=on-failure
+   RestartSec=10
+
+   [Install]
+   WantedBy=default.target
+   EOF
+   ```
+
+4. **Enable and start**:
+   ```bash
+   systemctl --user daemon-reload
+   systemctl --user enable --now wacli-sync.service
+   ```
+
+5. **Useful commands**:
+   ```bash
+   systemctl --user status wacli-sync    # Check status
+   journalctl --user -u wacli-sync -f    # Tail logs
+   systemctl --user restart wacli-sync   # Restart
+   ```
+
+6. **Backfill historical messages** (stop the service first to release the DB lock):
+   ```bash
+   systemctl --user stop wacli-sync
+   wacli history backfill --chat <JID> --count 50 --requests 5
+   systemctl --user start wacli-sync
+   ```
+   Find chat JIDs with `wacli chats list`.
+
+## Configuration
 
 1. **Copy the example configuration**
    ```bash
