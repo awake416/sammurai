@@ -1,0 +1,45 @@
+version: "3.9"
+
+# Common environment variables shared across services
+x-common-env: &common-env
+  WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-default_key}
+  WHATSAPP_PHONE_NUMBER: ${WHATSAPP_PHONE_NUMBER:-}
+  DATABASE_URL: ${DATABASE_URL:-sqlite:///app/data/sammurai.db}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  PORT: ${PORT:-8080}
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sammurai:local
+    container_name: sammurai-app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+    volumes:
+      # Persist WhatsApp session data, credentials, and downloaded media
+      - ./whatsapp-data:/app/whatsapp-data:rw
+      # Persist SQLite database file (Inferred from database.py as file-based)
+      - ./whatsapp-data/db:/app/data:rw
+    networks:
+      - sammurai-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+networks:
+  sammurai-net:
+    driver: bridge
+
+# Note: No separate database service (Postgres/Redis) is defined because the 
+# application uses SQLite for persistence, which is managed via the volume 
+# mount in the 'app' service.

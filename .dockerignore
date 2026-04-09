@@ -1,0 +1,16 @@
+.git/
+.gitignore
+.pytest_cache/
+.ruff_cache/
+.worktrees/
+.coverage
+tests/
+docs/
+*.md
+!README.md
+__pycache__/
+*.pyc
+*.pyo
+.env
+whatsapp-data/
+secrets/
