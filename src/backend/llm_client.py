@@ -124,7 +124,7 @@ Rules:
         self,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
-        model: str = "gemini/gemini-2.5-flash",
+        model: str = "claude-sonnet-4.6",
         confidence_threshold: float = 0.75,
     ):
         self.base_url = (base_url or os.environ.get("LITELLM_BASE_URL") or "").rstrip(
@@ -318,6 +318,39 @@ If it's NOT an action item, respond with:
             logger.error(f"LLM request failed: {e}")
             return None
 
+    def generate_with_tools(
+        self,
+        system_prompt: str,
+        messages: List[dict],
+        tools: List[dict],
+    ) -> Optional[dict]:
+        """Call LLM with tool/function definitions for agentic use.
+
+        Args:
+            system_prompt: System message for the agent.
+            messages: Conversation messages (role/content dicts).
+            tools: OpenAI-format tool definitions.
+
+        Returns:
+            The full response object from litellm, or None on failure.
+        """
+        try:
+            response = litellm.completion(
+                model=self.model,
+                messages=[{"role": "system", "content": system_prompt}] + messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=0.1,
+                api_key=self.api_key,
+                base_url=self.base_url,
+                custom_llm_provider="openai",
+                timeout=120,
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Tool-calling LLM request failed: {e}")
+            return None
+
     def extract_topics(self, messages: List[dict]) -> Optional[dict]:
         """Extract recurring topics from a list of messages."""
         if not messages:
@@ -374,8 +407,8 @@ If it's NOT an action item, respond with:
         messages: list[dict],
         batch_size: int = 50,
         parallel_batches: int = 1,
-    ) -> list[dict]:
-        """Extract action items from multiple messages in batches.
+    ) -> dict:
+        """Extract action items and entities from multiple messages in batches.
 
         Args:
             messages: List of dicts with 'message' and optional 'sender', 'timestamp' keys
@@ -383,12 +416,13 @@ If it's NOT an action item, respond with:
             parallel_batches: Number of concurrent batches to process (default: 1)
 
         Returns:
-            List of action items found
+            Dict with "action_items" and "entities" keys
         """
         if not messages:
-            return []
+            return {"action_items": [], "entities": []}
 
         all_action_items = []
+        all_entities = []
 
         # Prepare batches
         batches = []
@@ -403,7 +437,7 @@ If it's NOT an action item, respond with:
 
         if parallel_batches > 1:
             # Pre-size list to maintain order
-            batch_results = [[] for _ in range(num_batches)]
+            batch_results = [{"action_items": [], "entities": []} for _ in range(num_batches)]
             with ThreadPoolExecutor(max_workers=parallel_batches) as executor:
                 futures = {
                     executor.submit(
@@ -415,42 +449,49 @@ If it's NOT an action item, respond with:
                 for future in as_completed(futures):
                     batch_num = futures[future]
                     try:
-                        batch_items = future.result()
-                        batch_results[batch_num] = batch_items
+                        batch_result = future.result()
+                        batch_results[batch_num] = batch_result
                         logger.info(f"Completed batch {batch_num + 1}/{num_batches}")
                     except Exception as e:
                         logger.error(f"Error in batch {batch_num + 1}: {e}")
                         raise  # Re-raise to be caught by the caller
 
             # Flatten results in order
-            for batch_items in batch_results:
-                all_action_items.extend(batch_items)
+            for batch_result in batch_results:
+                all_action_items.extend(batch_result.get("action_items", []))
+                all_entities.extend(batch_result.get("entities", []))
         else:
             # Sequential processing
             for batch_num, (batch, offset) in enumerate(batches, 1):
                 logger.info(f"Processing batch {batch_num}/{num_batches}...")
-                batch_items = self._extract_batch_single(batch, batch_offset=offset)
-                all_action_items.extend(batch_items)
+                batch_result = self._extract_batch_single(batch, batch_offset=offset)
+                all_action_items.extend(batch_result.get("action_items", []))
+                all_entities.extend(batch_result.get("entities", []))
 
-        return all_action_items
+        logger.info(f"Extracted {len(all_action_items)} action items, {len(all_entities)} entities")
+        return {"action_items": all_action_items, "entities": all_entities}
 
     def _extract_batch_single(
         self, messages: list[dict], batch_offset: int = 0
-    ) -> list[dict]:
-        """Extract action items from a single batch of messages.
+    ) -> dict:
+        """Extract action items and entities from a single batch of messages.
 
         Args:
             messages: List of dicts with 'message' and optional 'sender', 'timestamp' keys
             batch_offset: Offset to add to message indices for global positioning
 
         Returns:
-            List of action items found in this batch
+            Dict with "action_items" and "entities" lists
         """
-        system_prompt = f"""You are an expert at analyzing WhatsApp messages to extract action items/tasks. Your goal is to free the user from reading the original WhatsApp messages. Provide enough context and a clear, standalone action so they know exactly what to do without checking the chat.
+        system_prompt = f"""You are an expert at analyzing WhatsApp messages to extract action items/tasks AND entities (people, activities, events, locations, organizations).
+
+Your goal is to free the user from reading the original WhatsApp messages. Provide enough context and a clear, standalone action so they know exactly what to do without checking the chat.
 
 The current date is {datetime.now(timezone.utc).strftime("%Y-%m-%d")}. Use this to resolve relative dates like 'tonight', 'tomorrow', or 'next week'.
 
-Given a list of WhatsApp messages, determine which ones contain actionable tasks.
+Given a list of WhatsApp messages, extract:
+1. Actionable tasks (temporal - things to do)
+2. Entities (stateful - people, activities, schedules, fees, contacts)
 
 Respond with JSON in this exact format:
 {{
@@ -469,17 +510,73 @@ Respond with JSON in this exact format:
             ],
             "original_message_index": <integer index of the message from the input list>
         }}
+    ],
+    "entities": [
+        {{
+            "entity_name": "Name of person/activity/event/location/org",
+            "entity_type": "Person", "Activity", "Event", "Location", or "Organization",
+            "metadata": {{
+                "schedule": "Time/day if mentioned (e.g., '4:45 PM - 5:45 PM', 'Mondays and Wednesdays')",
+                "fee": "Payment amount if mentioned (e.g., '₹5000', 'Rs 500')",
+                "contact": "Phone/email/UPI if mentioned (e.g., '9980980609', 'email@example.com')",
+                "location": "Address/place if mentioned",
+                "deadline": "Date if mentioned (YYYY-MM-DD format)",
+                "notes": "Any other relevant details"
+            }},
+            "relations": [
+                {{
+                    "relation_type": "ATTENDS", "PAYS", "SCHEDULED_FOR", "LOCATED_AT", "MEMBER_OF", or "RELATED_TO",
+                    "target_entity_name": "Name of related entity",
+                    "target_entity_type": "Person", "Activity", "Event", "Location", or "Organization",
+                    "properties": {{
+                        "schedule": "Relation-specific schedule",
+                        "fee": "Relation-specific fee",
+                        "notes": "Relation-specific details"
+                    }}
+                }}
+            ],
+            "original_message_index": <integer index of the message from the input list>
+        }}
     ]
 }}
+
+ENTITY EXTRACTION RULES:
+- Extract people mentioned in context (e.g., "Swadhi has soccer class" → Person: Swadhi)
+- Extract activities/classes (e.g., "CR7 Soccer", "Swimming lessons" → Activity)
+- Extract events (e.g., "Annual Day", "Parent-teacher meeting" → Event)
+- Extract locations (e.g., "SRP School", "Community Hall" → Location)
+- Extract organizations (e.g., "RWA Committee", "School PTA" → Organization)
+- Capture schedules, fees, contacts, deadlines in metadata
+- Create relations between entities (e.g., Swadhi ATTENDS CR7 Soccer, with schedule "4:45 PM")
+- If payment info mentioned, create PAYS relation with fee details
+- If location mentioned for activity, create LOCATED_AT relation
+- Be aggressive: extract ALL factual info even if not part of action item
 
 {LLMClient._EXTRACTION_RULES}
 - MUST include the correct original_message_index so we can map it back."""
 
-        # Format messages for the prompt
+        # Format messages for the prompt with context metadata
         formatted_messages = []
         for i, msg in enumerate(messages):
-            sender_info = f" [from {msg.get('sender')}]" if msg.get("sender") else ""
-            formatted_messages.append(f"[{i}]{sender_info}: {msg.get('message', '')}")
+            group_name = msg.get('group_name', 'Unknown Group')
+            sender = msg.get('sender', 'Unknown')
+            timestamp = msg.get('timestamp', '')
+            # Format timestamp to date only if present
+            if timestamp:
+                try:
+                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    date_str = dt.strftime('%Y-%m-%d')
+                except (ValueError, AttributeError):
+                    date_str = timestamp[:10] if len(timestamp) >= 10 else timestamp
+            else:
+                date_str = ''
+
+            context_prefix = f'[Context: Group="{group_name}", Sender="{sender}"'
+            if date_str:
+                context_prefix += f', Date="{date_str}"'
+            context_prefix += '] '
+
+            formatted_messages.append(f"[{i}] {context_prefix}{msg.get('message', '')}")
 
         user_message = "Messages to analyze:\n" + "\n".join(formatted_messages)
 
@@ -523,6 +620,9 @@ Respond with JSON in this exact format:
             parsed_data = json.loads(content[json_start:json_end])
 
             action_items = []
+            entities = []
+
+            # Process action items
             for item in parsed_data.get("action_items", []):
                 if (
                     item.get("is_action_item")
@@ -569,7 +669,48 @@ Respond with JSON in this exact format:
                             "message_ref": absolute_idx,
                         }
                     )
-            return action_items
+
+            # Process entities
+            for entity in parsed_data.get("entities", []):
+                idx = entity.get("original_message_index")
+
+                # Handle string index from LLM
+                try:
+                    if idx is not None:
+                        idx = int(idx)
+                except (ValueError, TypeError):
+                    logger.warning(
+                        f"Invalid entity message index type: {type(idx)} ({idx})"
+                    )
+                    continue
+
+                # Validate index before accessing messages
+                if idx is None or not (0 <= idx < len(messages)):
+                    logger.warning(
+                        f"Invalid entity message index {idx} (batch offset: {batch_offset}), skipping entity"
+                    )
+                    continue
+
+                # Adjust index by batch offset to get absolute position
+                absolute_idx = batch_offset + idx
+                original_msg = messages[idx]
+
+                entities.append(
+                    {
+                        "entity_name": entity.get("entity_name"),
+                        "entity_type": entity.get("entity_type", "Other"),
+                        "metadata": entity.get("metadata", {}),
+                        "relations": entity.get("relations", []),
+                        "original_message": original_msg.get("message", ""),
+                        "sender": original_msg.get("sender"),
+                        "timestamp": original_msg.get("timestamp"),
+                        "group_name": original_msg.get("group_name"),
+                        "group_jid": original_msg.get("group_jid"),
+                        "message_ref": absolute_idx,
+                    }
+                )
+
+            return {"action_items": action_items, "entities": entities}
 
         except (KeyError, json.JSONDecodeError) as e:
             logger.error(f"Failed to parse LLM batch response: {e}")

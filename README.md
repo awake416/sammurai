@@ -31,35 +31,58 @@ Get a formatted daily digest of all your WhatsApp groups with:
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Sammurai                                │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    │
-│  │  WhatsApp DB │───▶│   Parser     │───▶│ LLM Client   │    │
-│  │  (SQLite)    │    │              │    │  (LiteLLM)   │    │
-│  └──────────────┘    └──────────────┘    └──────────────┘    │
-│         │                                       │              │
-│         │                                       ▼              │
-│         │                              ┌──────────────┐       │
-│         │                              │    Topic     │       │
-│         │                              │  Extractor   │       │
-│         │                              └──────────────┘       │
-│         │                                       │              │
-│         │                                       ▼              │
-│         │                              ┌──────────────┐       │
-│         └─────────────────────────────▶│ Daily Digest │       │
-│                                        │   Output     │       │
-│                                        └──────────────┘       │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         Sammurai Pipeline                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐             │
+│  │  WhatsApp DB │───▶│   Parser     │───▶│ LLM Client   │             │
+│  │  (wacli)     │    │  + Enricher  │    │  (LiteLLM)   │             │
+│  └──────────────┘    └──────────────┘    └──────────────┘             │
+│         │                    │                    │                     │
+│         │                    ▼                    ▼                     │
+│         │            ┌──────────────┐    ┌──────────────┐             │
+│         │            │  Document    │    │    Topic     │             │
+│         │            │  Parser      │    │  Extractor   │             │
+│         │            └──────────────┘    └──────────────┘             │
+│         │                    │                    │                     │
+│         │                    └────────┬───────────┘                     │
+│         │                             ▼                                 │
+│         │                    ┌──────────────┐                          │
+│         │                    │ Daily Digest │                          │
+│         │                    │   Runner     │                          │
+│         │                    └──────────────┘                          │
+│         │                             │                                 │
+│         │                    ┌────────┴────────┐                       │
+│         │                    ▼                 ▼                       │
+│         │           ┌──────────────┐  ┌──────────────┐               │
+│         │           │Wiki Compiler │  │Cognee Store  │               │
+│         │           │(Markdown)    │  │(RAG Index)   │               │
+│         │           └──────────────┘  └──────────────┘               │
+│         │                    │                 │                       │
+│         └────────────────────┴─────────────────┘                       │
+│                                                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+                            ┌───────────────────────┐
+                            │  Hermes Agent         │
+                            │  (Nous Research)      │
+                            │  - Query Interface    │
+                            │  - Cognee Bridge      │
+                            └───────────────────────┘
+                                        │
+                                        ▼
+                                   WhatsApp
 
 Component Overview:
 - WhatsApp DB: SQLite database (wacli format) containing message data
-- Parser: Parses raw message data into structured Message objects
+- Parser + Enricher: Parses messages, enriches with document content + URLs
 - LLM Client: Interfaces with AI models via LiteLLM for NLP tasks
 - Topic Extractor: Identifies topics, summaries, and action items
-- Daily Digest: Formats results into readable markdown output
+- Wiki Compiler: Maintains markdown wiki from digests
+- Cognee Store: RAG index (semantic + graph search) for knowledge retrieval
+- Hermes Agent: Query interface integrated via skill
 ```
 
 ### Components
@@ -70,8 +93,11 @@ Component Overview:
 | **Parser** | Converts raw database records into structured Message objects |
 | **LLM Client** | Handles communication with AI models (OpenAI, Anthropic, Gemini, etc.) |
 | **Topic Extractor** | Core AI logic for extracting topics, action items, and summaries |
-| **Document Parser** | Extracts text from PDFs and other documents |
+| **Document Parser** | Extracts text from PDFs, images, and URLs |
+| **Wiki Compiler** | Maintains structured markdown wiki from digests |
+| **Cognee Store** | RAG index using cognee for semantic + graph search |
 | **CLI** | Command-line interface for interacting with Sammurai |
+| **Hermes Integration** | Query interface via Nous Research Hermes agent |
 
 ## Quick Start Guide
 
@@ -298,6 +324,80 @@ Sammurai implements several security measures to protect your data:
 - **PII Redaction**: Sensitive information is redacted from logs
 - **Input Validation**: All inputs are validated using Pydantic models
 - **Environment Variable Security**: API keys are stored in environment variables, not in configuration files
+
+## Hermes Integration
+
+Sammurai integrates with [Nous Research Hermes](https://github.com/NousResearch/hermes) agent for interactive queries via WhatsApp.
+
+### Architecture
+- **Sammurai** = backend (extraction → wiki → cognee indexing)
+- **Hermes** = frontend (queries cognee + internet)
+- **MCP Server** = bridge between Hermes (Docker) and cognee (host)
+
+### Setup
+
+#### Option A: MCP Server (Recommended for Docker/WSL)
+
+Use MCP if Hermes runs in Docker (can't execute host Python directly).
+
+```bash
+# Install MCP SDK
+~/.venv/bin/pip install mcp
+
+# Add to Hermes (auto-discovers tools)
+hermes mcp add sammurai \
+  --command /home/chhikv/.venv/bin/python \
+  --args /home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py
+
+# Verify
+hermes mcp list
+
+# Start new session (tools only available in new sessions)
+```
+
+**MCP Tools:**
+- `search_brain` — semantic + graph search
+- `read_wiki_file` — read specific file
+- `list_wiki_files` — list all files
+
+See [integrations/mcp/README.md](integrations/mcp/README.md) for details.
+
+#### Option B: Python Skill (Direct execution)
+
+Use skill if Hermes runs natively on host (not Docker).
+
+```bash
+# Install skill
+cp -r integrations/hermes ~/.hermes/skills/productivity/sammurai
+chmod +x ~/.hermes/skills/productivity/sammurai/scripts/query_brain.py
+
+# Restart Hermes
+systemctl --user restart hermes-gateway.service
+```
+
+See [integrations/hermes/README.md](integrations/hermes/README.md) for details.
+
+### Usage
+
+Ask Hermes via WhatsApp:
+- "Search my brain for pending tasks"
+- "What's in my sammurai knowledge base about cybersecurity?"
+- "Read tasks.md from my wiki"
+- "List all my wiki files"
+
+### Automated Updates
+
+Daily digest timer runs at 23:59:
+
+```bash
+systemctl --user status sammurai-digest.timer
+```
+
+Or manually trigger:
+
+```bash
+~/.venv/bin/python -m src.backend.digest_runner
+```
 
 ## License
 

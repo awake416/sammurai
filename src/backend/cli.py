@@ -39,7 +39,8 @@ from src.backend.parser import parse_messages
 from src.backend.models import ActionableItem, Message, Priority, DocumentSummary
 from src.backend.llm_client import LLMClient, LLMError
 from src.backend.topic_extractor import TopicExtractor
-from src.backend.document_parser import DocumentParser
+from src.backend.rich_document_parser import RichDocumentParser as DocumentParser
+from src.backend.entity_store import EntityStore
 from src.backend.utils import redact_pii
 
 
@@ -262,34 +263,47 @@ def get_document_summaries(
 
 
 def enrich_messages_with_docs(
-    messages: List[dict], document_parser: DocumentParser
+    messages: List[dict], document_parser: DocumentParser, url_extractor=None
 ) -> List[dict]:
-    """Enrich messages with extracted document content for LLM extraction."""
+    """Enrich messages with extracted document content and URL summaries."""
     logger.debug(f"enrich_messages_with_docs called with {len(messages)} messages")
     for msg in messages:
         media_type = msg.get("media_type")
         local_path = msg.get("local_path")
+        original_message = msg.get("message") or ""
 
-        if (
-            media_type == "document"
-            and local_path
-            and local_path.lower().endswith(".pdf")
-        ):
-            logger.debug(f"Found PDF document for enrichment: {local_path}")
-            try:
-                content = document_parser.extract_text(local_path)
-                if content:
-                    original_message = msg.get("message") or ""
-                    msg["message"] = (
-                        f"{original_message}\n[Extracted Document Content]: {content}"
-                    )
-                    logger.debug(f"Enriched message with content from {local_path}")
-                else:
-                    logger.debug(f"No content extracted from {local_path}")
-            except Exception as e:
-                logger.warning(
-                    f"Failed to extract text from {local_path} for enrichment: {e}"
-                )
+        # PDF / image attachment enrichment
+        if local_path:
+            from pathlib import Path as _Path
+            ext = _Path(local_path).suffix.lower()
+            if ext in {".pdf", ".jpg", ".jpeg", ".png"}:
+                logger.debug(f"Found attachment for enrichment: {local_path}")
+                try:
+                    content = document_parser.extract_text(local_path)
+                    if content:
+                        msg["message"] = (
+                            f"{original_message}\n[Extracted Document Content]: {content}"
+                        )
+                        original_message = msg["message"]
+                except Exception as e:
+                    logger.warning(f"Failed to extract from {local_path}: {e}")
+
+    # URL enrichment — bulk concurrent fetch across all messages
+    if url_extractor:
+        try:
+            texts = [m.get("message") or "" for m in messages]
+            bulk_results = url_extractor.extract_from_messages(texts)
+            if bulk_results:
+                msg_index = {m.get("message") or "": m for m in messages}
+                for text, url_summaries in bulk_results.items():
+                    msg = msg_index.get(text)
+                    if msg and url_summaries:
+                        parts = [f"[URL: {s['url']}]\n{s['summary']}" for s in url_summaries]
+                        msg["message"] = (msg.get("message") or "") + "\n" + "\n".join(parts)
+                logger.debug(f"URL enrichment: {sum(len(v) for v in bulk_results.values())} summaries across {len(bulk_results)} messages")
+        except Exception as e:
+            logger.warning(f"URL enrichment failed: {e}")
+
     return messages
 
 
@@ -461,7 +475,10 @@ def extract_from_group(
 
     # Enrich messages with document content if parser is available
     if document_parser:
-        messages = enrich_messages_with_docs(messages, document_parser)
+        from src.backend.url_extractor import URLExtractor as _UE
+        from src.backend.ollama_client import OllamaClient as _OC
+        _url_ext = _UE(ollama_client=_OC(), llm_client=llm_client, batch_mode=True)
+        messages = enrich_messages_with_docs(messages, document_parser, url_extractor=_url_ext)
 
     # Determine which parser to use based on config and flags
     fallback_enabled = config.get("parser", {}).get("fallback_to_rule_based", True)
@@ -477,7 +494,7 @@ def extract_from_group(
             try:
                 llm_config = config.get("llm", {})
                 llm_client = LLMClient(
-                    model=llm_config.get("model", "gemini/gemini-2.5-flash"),
+                    model=llm_config.get("model", "claude-sonnet-4.6"),
                     confidence_threshold=llm_config.get("confidence_threshold", 0.75),
                 )
             except ValueError as e:
@@ -494,9 +511,46 @@ def extract_from_group(
 
         if llm_client:
             try:
-                action_items = llm_client.extract_batch(
+                extraction_result = llm_client.extract_batch(
                     messages, batch_size=batch_size, parallel_batches=parallel_batches
                 )
+                action_items = extraction_result.get("action_items", [])
+                entities = extraction_result.get("entities", [])
+
+                # Store entities in SQLite
+                if entities:
+                    wiki_path = Path.home() / "sammurai-brain"
+                    entity_store = EntityStore(db_path=str(wiki_path / "sammurai.db"))
+
+                    # First pass: store all entities (must exist before relations)
+                    for entity in entities:
+                        entity_store.add_entity(
+                            entity_name=entity["entity_name"],
+                            entity_type=entity["entity_type"],
+                            metadata=entity.get("metadata", {}),
+                            group_jid=entity.get("group_jid"),
+                            group_name=entity.get("group_name"),
+                            message_timestamp=entity.get("timestamp"),
+                            message_id=str(entity.get("message_ref", "")),
+                        )
+
+                    # Second pass: add relations (now all targets exist)
+                    relation_count = 0
+                    for entity in entities:
+                        for relation in entity.get("relations", []):
+                            rel_id = entity_store.add_relation(
+                                source_name=entity["entity_name"],
+                                source_type=entity["entity_type"],
+                                relation_type=relation["relation_type"],
+                                target_name=relation["target_entity_name"],
+                                target_type=relation["target_entity_type"],
+                                properties=relation.get("properties", {}),
+                            )
+                            if rel_id:
+                                relation_count += 1
+
+                    logger.info(f"Stored {len(entities)} entities, {relation_count} relations in entity store")
+
             except Exception as e:
                 if use_llm:
                     logger.error(f"CRITICAL ERROR: LLM extraction failed: {e}")
@@ -608,7 +662,10 @@ def extract_from_all_groups(
 
     # Enrich messages with document content if parser is available
     if document_parser:
-        messages = enrich_messages_with_docs(messages, document_parser)
+        from src.backend.url_extractor import URLExtractor as _UE
+        from src.backend.ollama_client import OllamaClient as _OC
+        _url_ext = _UE(ollama_client=_OC(), llm_client=llm_client, batch_mode=True)
+        messages = enrich_messages_with_docs(messages, document_parser, url_extractor=_url_ext)
 
     # Determine which parser to use based on config and flags
     fallback_enabled = config.get("parser", {}).get("fallback_to_rule_based", True)
@@ -624,7 +681,7 @@ def extract_from_all_groups(
             try:
                 llm_config = config.get("llm", {})
                 llm_client = LLMClient(
-                    model=llm_config.get("model", "gemini/gemini-2.5-flash"),
+                    model=llm_config.get("model", "claude-sonnet-4.6"),
                     confidence_threshold=llm_config.get("confidence_threshold", 0.75),
                 )
             except ValueError as e:
@@ -641,9 +698,46 @@ def extract_from_all_groups(
 
         if llm_client:
             try:
-                action_items = llm_client.extract_batch(
+                extraction_result = llm_client.extract_batch(
                     messages, batch_size=batch_size, parallel_batches=parallel_batches
                 )
+                action_items = extraction_result.get("action_items", [])
+                entities = extraction_result.get("entities", [])
+
+                # Store entities in SQLite
+                if entities:
+                    wiki_path = Path.home() / "sammurai-brain"
+                    entity_store = EntityStore(db_path=str(wiki_path / "sammurai.db"))
+
+                    # First pass: store all entities (must exist before relations)
+                    for entity in entities:
+                        entity_store.add_entity(
+                            entity_name=entity["entity_name"],
+                            entity_type=entity["entity_type"],
+                            metadata=entity.get("metadata", {}),
+                            group_jid=entity.get("group_jid"),
+                            group_name=entity.get("group_name"),
+                            message_timestamp=entity.get("timestamp"),
+                            message_id=str(entity.get("message_ref", "")),
+                        )
+
+                    # Second pass: add relations (now all targets exist)
+                    relation_count = 0
+                    for entity in entities:
+                        for relation in entity.get("relations", []):
+                            rel_id = entity_store.add_relation(
+                                source_name=entity["entity_name"],
+                                source_type=entity["entity_type"],
+                                relation_type=relation["relation_type"],
+                                target_name=relation["target_entity_name"],
+                                target_type=relation["target_entity_type"],
+                                properties=relation.get("properties", {}),
+                            )
+                            if rel_id:
+                                relation_count += 1
+
+                    logger.info(f"Stored {len(entities)} entities, {relation_count} relations in entity store")
+
             except Exception as e:
                 if use_llm:
                     logger.error(f"CRITICAL ERROR: LLM extraction failed: {e}")
@@ -841,18 +935,17 @@ def main():
         type=int,
         help="Number of concurrent batches to process per group",
     )
-    msg_group = parser.add_mutually_exclusive_group()
-    msg_group.add_argument(
+    parser.add_argument(
         "--limit",
         "-n",
         type=int,
-        default=100,
-        help="Number of messages to fetch per group (default: 100)",
+        default=3000,
+        help="Max messages to fetch per group (default: 3000)",
     )
-    msg_group.add_argument(
+    parser.add_argument(
         "--days",
         type=int,
-        help="Number of days to look back for messages (mutually exclusive with --limit)",
+        help="Number of days to look back for messages (combines with --limit)",
     )
     parser.add_argument(
         "--batch-size",
@@ -936,7 +1029,7 @@ def main():
                 llm_config = config.get("llm", {})
                 try:
                     llm_client = LLMClient(
-                        model=llm_config.get("model", "gemini/gemini-2.5-flash"),
+                        model=llm_config.get("model", "claude-sonnet-4.6"),
                         confidence_threshold=llm_config.get(
                             "confidence_threshold", 0.75
                         ),
@@ -956,6 +1049,13 @@ def main():
 
             topic_extractor = None
             document_parser = DocumentParser()
+            from src.backend.ollama_client import OllamaClient
+            from src.backend.url_extractor import URLExtractor
+            _ollama = OllamaClient()
+            url_extractor = URLExtractor(
+                ollama_client=_ollama,
+                llm_client=llm_client,
+            )
             if (args.digest or args.topics_only) and llm_client:
                 topic_extractor = TopicExtractor(
                     llm_client, document_parser=document_parser

@@ -1,17 +1,18 @@
-# WhatsApp Action Item Extractor Configuration
+# Sammurai Configuration Example
+# Copy to config.yaml and customize
 
 llm:
   # LiteLLM configuration
-  # Set these via environment variables for security:
+  # Set these via environment variables:
   #   export LITELLM_BASE_URL="https://your-litellm-url.com"
   #   export LITELLM_API_KEY="your-api-key"
-  
-  # Model to use (default: gpt-4)
-  model: "gemini-2.0-flash"
-  
+
+  # Model to use (claude-sonnet-4.6, gemini-2.0-flash, gpt-4o, etc.)
+  model: "claude-sonnet-4.6"
+
   # Confidence threshold (only include results above this)
   confidence_threshold: 0.75
-  
+
   # Batch size for processing messages
   batch_size: 10
 
@@ -24,20 +25,60 @@ database:
 parser:
   # Use LLM parser (set to false to use rule-based only)
   use_llm: true
-  
+
   # Fallback to rule-based if LLM fails
   fallback_to_rule_based: true
 
 # Parallel processing
 parallel:
-  # List of group names to process by default if no group or --all is specified
+  # List of group JIDs to process by default
+  # Find JIDs with: wacli chats list
   groups:
-    - "GROUP_ID_1"
-    - "GROUP_ID_2"
-    - "GROUP_ID_3"
-   
+    - "120363400315307170@g.us"
+    - "120363284021263131@g.us"
+
   # Number of concurrent groups to process
   workers: 5
-  
+
   # Number of concurrent batches to process within a group
   batch_workers: 3
+
+# Wiki (Second Brain)
+wiki:
+  # Path to the wiki Git repository (separate from code repo)
+  path: "~/sammurai-brain"
+
+  # Path to raw digest dumps (relative to wiki path)
+  raw_path: "~/sammurai-brain/raw"
+
+  # Schema file that governs wiki structure
+  schema: "SCHEMA.md"
+
+# Cron / Daily Digest
+cron:
+  # Days to look back for each digest
+  days: 1
+
+  # Groups override (empty = use parallel.groups)
+  groups: []
+
+# Embeddings for RAG
+embeddings:
+  # LiteLLM-compatible embedding model
+  # Set EMBEDDING_ENDPOINT env var to your LiteLLM URL
+  model: "text-embedding-3-small"
+
+# Agent (Hermes - WhatsApp query interface)
+agent:
+  # JID of the "My Brain" chat for agent interaction
+  # Your personal WhatsApp number + @s.whatsapp.net
+  brain_chat_jid: "919742203747@s.whatsapp.net"
+
+  # Poll interval in seconds (30 min = 1800)
+  poll_interval: 1800
+
+  # Max outbound messages per minute
+  rate_limit: 10
+
+  # wacli binary path
+  wacli_path: "wacli"

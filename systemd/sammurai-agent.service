@@ -1,0 +1,16 @@
+[Unit]
+Description=Sammurai Hermes Agent Daemon
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/chhikv/ai/sammurai
+ExecStart=/home/chhikv/.venv/bin/python -m src.backend.agent_daemon
+EnvironmentFile=%h/.config/sammurai/env
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "sammurai": {
+      "command": "/home/chhikv/.venv/bin/python",
+      "args": [
+        "/home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py"
+      ],
+      "env": {
+        "SAMMURAI_WIKI_PATH": "/home/chhikv/sammurai-brain",
+        "SAMMURAI_CONFIG": "/home/chhikv/ai/sammurai/config.yaml"
+      },
+      "description": "Sammurai Second Brain - WhatsApp knowledge base via cognee RAG"
+    }
+  }
+}
