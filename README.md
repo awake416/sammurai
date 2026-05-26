@@ -346,8 +346,8 @@ Use MCP if Hermes runs in Docker (can't execute host Python directly).
 
 # Add to Hermes (auto-discovers tools)
 hermes mcp add sammurai \
-  --command /home/chhikv/.venv/bin/python \
-  --args /home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py
+  --command $HOME/.venv/bin/python \
+  --args $HOME/ai/sammurai/integrations/mcp/sammurai_mcp_server.py
 
 # Verify
 hermes mcp list

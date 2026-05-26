@@ -56,7 +56,7 @@ def test_entity_merge(temp_entity_store):
     temp_entity_store.add_entity(
         entity_name="CR7 Soccer",
         entity_type="Activity",
-        metadata={"fee": "₹5000", "contact": "9980980609"},
+        metadata={"fee": "₹5000", "contact": "5551234567"},
         group_name="Soccer Group",
     )
 
@@ -66,7 +66,7 @@ def test_entity_merge(temp_entity_store):
     entity = temp_entity_store.get_entity("CR7 Soccer", "Activity")
     assert entity["metadata"]["schedule"] == "4:45 PM"
     assert entity["metadata"]["fee"] == "₹5000"
-    assert entity["metadata"]["contact"] == "9980980609"
+    assert entity["metadata"]["contact"] == "5551234567"
 
 
 def test_add_relation(temp_entity_store):
@@ -152,17 +152,17 @@ def test_entity_extraction_schema():
         "action_items": [
             {
                 "is_action_item": True,
-                "task": "Pay CR7 Soccer fee to 9980980609",
+                "task": "Pay CR7 Soccer fee to 5551234567",
                 "category": "School",
                 "context": "Soccer class fee payment reminder",
-                "assignee": "Vivek",
+                "assignee": "User",
                 "deadline": "2026-05-31",
                 "priority": "Medium",
                 "confidence": 0.9,
                 "resources": [
                     {
                         "type": "contact",
-                        "value": "9980980609",
+                        "value": "5551234567",
                         "description": "Payment UPI"
                     }
                 ],
@@ -196,7 +196,7 @@ def test_entity_extraction_schema():
                 "metadata": {
                     "schedule": "4:45 PM - 5:45 PM",
                     "fee": "₹5000",
-                    "contact": "9980980609",
+                    "contact": "5551234567",
                 },
                 "relations": [],
                 "original_message_index": 0,
@@ -258,7 +258,7 @@ def test_entity_extraction_integration(temp_entity_store):
     # Test message
     messages = [
         {
-            "message": "Swadhi has CR7 Soccer class at 4:45 PM today. Pay ₹5000 to 9980980609.",
+            "message": "Swadhi has CR7 Soccer class at 4:45 PM today. Pay ₹5000 to 5551234567.",
             "sender": "Keerthi",
             "group_name": "SRP CR7 Soccer",
             "group_jid": "123@g.us",

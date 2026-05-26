@@ -387,8 +387,8 @@ class TestOllamaIntegration:
         from src.backend.rich_document_parser import RichDocumentParser
         parser = RichDocumentParser(use_ollama_cleanup=True)
         # Simulate OCR misread: 0→O, 8→B in PAN
-        raw = "PAN: AMS PK 2 71 8F  Name: VIVEK CHHIKARA  DOB: O1/O5/199O"
+        raw = "PAN: AMS PK 2 71 8F  Name: JOHN DOE  DOB: O1/O5/199O"
         result = parser._ollama_cleanup(raw)
         # Should return non-empty cleaned text
         assert len(result) > 10
-        assert "VIVEK" in result or "vivek" in result.lower()
+        assert "JOHN" in result or "john" in result.lower()

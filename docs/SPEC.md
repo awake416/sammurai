@@ -25,7 +25,7 @@ wacli (WhatsApp Sync) --> SQLite DB (wacli.db) --> Python Backend (CLI) --> Acti
 ## Configuration
 
 ### Environment Variables
-- `LITELLM_BASE_URL`: LiteLLM endpoint (e.g., https://litellm.protium.co.in/v1)
+- `LITELLM_BASE_URL`: LiteLLM endpoint (e.g., https://litellm.example.com/v1)
 - `LITELLM_API_KEY`: API key for LLM service
 
 ### config.yaml

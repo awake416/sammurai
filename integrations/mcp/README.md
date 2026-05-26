@@ -33,8 +33,8 @@ Add MCP server via Hermes CLI (will auto-discover tools):
 
 ```bash
 hermes mcp add sammurai \
-  --command /home/chhikv/.venv/bin/python \
-  --args /home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py
+  --command $HOME/.venv/bin/python \
+  --args $HOME/ai/sammurai/integrations/mcp/sammurai_mcp_server.py
 ```
 
 When prompted, select "Y" to enable all 3 tools.
@@ -51,13 +51,13 @@ Edit `~/.hermes/config.yaml`, add at end:
 ```yaml
 mcp_servers:
   sammurai:
-    command: /home/chhikv/.venv/bin/python
+    command: $HOME/.venv/bin/python
     args:
-      - /home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py
+      - $HOME/ai/sammurai/integrations/mcp/sammurai_mcp_server.py
     enabled: true
     env:
-      SAMMURAI_WIKI_PATH: /home/chhikv/sammurai-brain
-      SAMMURAI_CONFIG: /home/chhikv/ai/sammurai/config.yaml
+      SAMMURAI_WIKI_PATH: $HOME/sammurai-brain
+      SAMMURAI_CONFIG: $HOME/ai/sammurai/config.yaml
 ```
 
 **Note:** Use absolute paths (not `~`).
@@ -230,7 +230,7 @@ echo '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}' | \
 
 Set in Hermes MCP config or shell:
 ```bash
-export SAMMURAI_WIKI_PATH=/home/chhikv/sammurai-brain
+export SAMMURAI_WIKI_PATH=$HOME/sammurai-brain
 ```
 
 ## Logging

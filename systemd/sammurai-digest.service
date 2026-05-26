@@ -4,8 +4,8 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/chhikv/ai/sammurai
-ExecStart=/home/chhikv/.venv/bin/python -m src.backend.digest_runner
+WorkingDirectory=$HOME/ai/sammurai
+ExecStart=$HOME/.venv/bin/python -m src.backend.digest_runner
 EnvironmentFile=%h/.config/sammurai/env
 StandardOutput=journal
 StandardError=journal

@@ -100,11 +100,11 @@ MCP server already configured in your `mcp_servers.json`:
 {
   "mcpServers": {
     "sammurai": {
-      "command": "/home/chhikv/.venv/bin/python",
-      "args": ["/home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py"],
+      "command": "$HOME/.venv/bin/python",
+      "args": ["$HOME/ai/sammurai/integrations/mcp/sammurai_mcp_server.py"],
       "env": {
-        "SAMMURAI_WIKI_PATH": "/home/chhikv/sammurai-brain",
-        "SAMMURAI_CONFIG": "/home/chhikv/ai/sammurai/config.yaml"
+        "SAMMURAI_WIKI_PATH": "$HOME/sammurai-brain",
+        "SAMMURAI_CONFIG": "$HOME/ai/sammurai/config.yaml"
       }
     }
   }

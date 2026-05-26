@@ -4,8 +4,8 @@ After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/chhikv/ai/sammurai
-ExecStart=/home/chhikv/.venv/bin/python -m src.backend.agent_daemon
+WorkingDirectory=$HOME/ai/sammurai
+ExecStart=$HOME/.venv/bin/python -m src.backend.agent_daemon
 EnvironmentFile=%h/.config/sammurai/env
 Restart=on-failure
 RestartSec=10

@@ -1,4 +1,4 @@
-#!/home/chhikv/.venv/bin/python3
+#!$HOME/.venv/bin/python3
 """Sammurai MCP Server - exposes cognee knowledge base via MCP protocol.
 
 Usage:
@@ -107,7 +107,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="search_entities",
-            description="Search structured entities (people, activities, events, locations, organizations) extracted from WhatsApp messages. Use for specific queries like 'What is Swadhi's soccer schedule?' or 'When does CR7 Soccer meet?'. Much faster than search_brain (sub-second vs 15-19s).",
+            description="Search structured entities (people, activities, events, locations, organizations) extracted from WhatsApp messages. Use for specific queries like 'What is Bob's soccer schedule?' or 'When does CR7 Soccer meet?'. Much faster than search_brain (sub-second vs 15-19s).",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -131,13 +131,13 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="get_entity_relations",
-            description="Get all relations for a specific entity (e.g., 'Swadhi' -> ATTENDS -> 'CR7 Soccer' with schedule). Use after search_entities to get detailed info.",
+            description="Get all relations for a specific entity (e.g., 'Bob' -> ATTENDS -> 'CR7 Soccer' with schedule). Use after search_entities to get detailed info.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "entity_name": {
                         "type": "string",
-                        "description": "Entity name (e.g., 'Swadhi', 'CR7 Soccer')",
+                        "description": "Entity name (e.g., 'Bob', 'CR7 Soccer')",
                     },
                     "entity_type": {
                         "type": "string",

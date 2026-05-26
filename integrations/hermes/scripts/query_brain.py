@@ -1,4 +1,4 @@
-#!/home/chhikv/.venv/bin/python3
+#!$HOME/.venv/bin/python3
 """Query sammurai cognee store from Hermes.
 
 Usage:

@@ -88,7 +88,7 @@ class EntityStore:
         """Add or update an entity.
 
         Args:
-            entity_name: Name of the entity (e.g., "Swadhi", "CR7 Soccer")
+            entity_name: Name of the entity (e.g., "Bob", "CR7 Soccer")
             entity_type: Type from ENTITY_TYPES
             metadata: Dict of entity attributes (schedule, fee, contact, etc.)
             group_jid: WhatsApp group JID

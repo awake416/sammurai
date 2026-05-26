@@ -9,4 +9,4 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-exec /home/chhikv/.venv/bin/python /home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py "$@"
+exec $HOME/.venv/bin/python $HOME/ai/sammurai/integrations/mcp/sammurai_mcp_server.py "$@"

@@ -518,7 +518,7 @@ Respond with JSON in this exact format:
             "metadata": {{
                 "schedule": "Time/day if mentioned (e.g., '4:45 PM - 5:45 PM', 'Mondays and Wednesdays')",
                 "fee": "Payment amount if mentioned (e.g., '₹5000', 'Rs 500')",
-                "contact": "Phone/email/UPI if mentioned (e.g., '9980980609', 'email@example.com')",
+                "contact": "Phone/email/UPI if mentioned (e.g., '5551234567', 'email@example.com')",
                 "location": "Address/place if mentioned",
                 "deadline": "Date if mentioned (YYYY-MM-DD format)",
                 "notes": "Any other relevant details"
