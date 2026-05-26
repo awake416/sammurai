@@ -1,12 +1,7 @@
 #!/bin/bash
-# MCP server wrapper - loads env vars from file
+# MCP wrapper for Hermes gateway stdio MCP client
 
-ENV_FILE="${HOME}/.config/sammurai/env"
+export SAMMURAI_WIKI_PATH=/home/chhikv/sammurai-brain
+export SAMMURAI_CONFIG=/home/chhikv/ai/sammurai/config.yaml
 
-if [ -f "$ENV_FILE" ]; then
-    set -a
-    source "$ENV_FILE"
-    set +a
-fi
-
-exec $HOME/.venv/bin/python $HOME/ai/sammurai/integrations/mcp/sammurai_mcp_server.py "$@"
+exec /home/chhikv/.venv/bin/python /home/chhikv/ai/sammurai/integrations/mcp/sammurai_mcp_server.py

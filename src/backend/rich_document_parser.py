@@ -34,10 +34,22 @@ HINDI_HINTS = {"aadhaar", "adhar", "aadhar", "gst", "udyam", "electricity", "par
 
 
 class RichDocumentParser:
-    """Hybrid OCR parser: pdfplumber → docTR/EasyOCR → Ollama cleanup."""
+    """Hybrid OCR parser: pdfplumber → docTR/EasyOCR → Ollama cleanup.
 
-    def __init__(self, use_ollama_cleanup: bool = True):
+    Includes vision LLM for payment screenshots.
+    """
+
+    def __init__(
+        self,
+        use_ollama_cleanup: bool = True,
+        use_vision_for_payments: bool = True,
+        vision_model: Optional[str] = None,
+    ):
         self.use_ollama_cleanup = use_ollama_cleanup
+        self.use_vision_for_payments = use_vision_for_payments
+        self.vision_model = vision_model or os.environ.get(
+            "LLM_MODEL", "gemini-3.1-pro-preview"
+        )
         self._doctr_model = None   # lazy-loaded
         self._easyocr_reader = None  # lazy-loaded
 
@@ -138,7 +150,19 @@ class RichDocumentParser:
         return self._postprocess_ocr(text)
 
     def _ocr_image(self, file_path: str) -> str:
-        """Run EasyOCR on a standalone image file."""
+        """Run OCR on a standalone image file.
+
+        Payment screenshots detected and sent to vision LLM first.
+        Falls back to standard OCR if vision disabled or not a payment.
+        """
+        # Check if payment screenshot via vision LLM
+        if self.use_vision_for_payments:
+            payment_data = self._extract_payment_via_vision(file_path)
+            if payment_data:
+                logger.info("Payment screenshot detected via vision LLM")
+                return payment_data
+
+        # Standard OCR path
         try:
             from PIL import Image
             import numpy as np
@@ -279,3 +303,72 @@ class RichDocumentParser:
         except Exception as e:
             logger.warning("Ollama cleanup failed (%s) — returning raw OCR text", e)
             return raw_text
+
+    # ------------------------------------------------------------------
+    # Vision LLM for payment screenshots
+    # ------------------------------------------------------------------
+
+    def _extract_payment_via_vision(self, image_path: str) -> Optional[str]:
+        """Use vision LLM to extract payment details from screenshot.
+
+        Returns formatted payment string if detected, None otherwise.
+        """
+        import base64
+
+        try:
+            # Load and encode image
+            with open(image_path, "rb") as f:
+                image_b64 = base64.b64encode(f.read()).decode("utf-8")
+
+            # Vision LLM call via litellm
+            import litellm
+
+            prompt = """Analyze this image. If it's a payment screenshot (UPI, bank transfer, payment receipt), extract:
+- Date (YYYY-MM-DD format if possible, or original format)
+- Amount Paid (with currency symbol)
+- Recipient Name/ID
+- Payment Purpose/Reference (if mentioned)
+
+If NOT a payment screenshot, respond with: NOT_PAYMENT
+
+If IS a payment screenshot, format as:
+Payment Screenshot. Date: [date]. Amount: [amount]. Recipient: [name/ID]. Purpose: [purpose or "unspecified"]."""
+
+            response = litellm.completion(
+                model=self.vision_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_b64}"
+                                },
+                            },
+                        ],
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=300,
+            )
+
+            result = response.choices[0].message.content.strip()
+
+            # Check if payment detected
+            if "NOT_PAYMENT" in result:
+                logger.debug("Vision LLM: not a payment screenshot")
+                return None
+
+            # Validate payment extraction
+            if "Payment Screenshot" in result and "Amount:" in result:
+                logger.info("Vision LLM extracted payment: %s", result[:100])
+                return result
+
+            logger.debug("Vision LLM ambiguous response, skipping")
+            return None
+
+        except Exception as e:
+            logger.warning("Vision LLM payment extraction failed: %s", e)
+            return None
