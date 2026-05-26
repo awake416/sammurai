@@ -367,6 +367,36 @@ class WhatsAppDB:
 
         return messages
 
+    def get_messages_since(
+        self, jid: str, since_ts: int, limit: int = 50
+    ) -> list[dict]:
+        """Get messages newer than since_ts for a specific chat JID.
+
+        Used by the agent daemon to poll for new messages.
+
+        Args:
+            jid: The chat JID to monitor.
+            since_ts: Unix timestamp (seconds). Only messages after this are returned.
+            limit: Maximum messages to return per poll.
+
+        Returns:
+            List of message dicts, ordered by timestamp ascending (oldest first).
+        """
+        query = """
+            SELECT
+                msg_id, text, sender_name, ts, chat_name, chat_jid,
+                media_type, media_caption, filename, local_path
+            FROM messages
+            WHERE chat_jid = ? AND ts > ?
+            ORDER BY ts ASC
+            LIMIT ?
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, (jid, since_ts, limit))
+        rows = cursor.fetchall()
+        return self._rows_to_message_dicts(rows)
+
     def _rows_to_message_dicts(self, rows: Sequence[Mapping[str, Any]]) -> list[dict]:
         """Convert database rows to message dictionaries.
 

@@ -1,143 +1,74 @@
-"""
-Orchestration pipeline for the RAG (Retrieval-Augmented Generation) system.
+"""RAG pipeline: ingest wiki files, query with cognee (vector + knowledge graph)."""
 
-This module chains together document parsing, embedding generation, vector storage,
-retrieval mechanisms, and LLM generation into a cohesive workflow. It manages
-the data flow from raw input files to structured responses.
-"""
-
-import asyncio
-from typing import List, Dict, Any, Optional
+import logging
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+from src.backend.cognee_store import CogneeStore
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class PipelineConfig:
-    """
-    Configuration settings for the RAG pipeline.
+    """Configuration for the RAG pipeline."""
 
-    Attributes:
-        embedding_model (str): The identifier for the model used to generate vector embeddings.
-        chunk_size (int): The maximum number of characters/tokens per text segment.
-        chunk_overlap (int): The number of overlapping units between consecutive chunks.
-        vector_db_path (str): The local or remote path to the vector database storage.
-        llm_model (str): The identifier for the generative language model.
-    """
-    embedding_model: str
-    chunk_size: int
-    chunk_overlap: int
-    vector_db_path: str
-    llm_model: str
+    wiki_path: str = "~/sammurai-brain/wiki"
+    dataset_name: str = "sammurai_wiki"
+    llm_model: str = "claude-sonnet-4.6"
+    embedding_model: str = "text-embedding-3-small"
+    top_k: int = 5
+
 
 class RAGPipeline:
-    """
-    Main orchestration class for the RAG lifecycle.
+    """Orchestrates wiki ingestion and RAG querying via cognee."""
 
-    This class handles the ingestion of documents and the execution of queries
-    by coordinating specialized components for parsing, indexing, and generation.
-
-    Attributes:
-        config (PipelineConfig): Configuration parameters for the pipeline stages.
-        is_initialized (bool): Tracks whether the vector store and models are loaded.
-    """
-
-    def __init__(self, config: PipelineConfig):
-        """
-        Initializes the RAGPipeline with specific configuration.
-
-        Args:
-            config (PipelineConfig): The configuration object defining model and storage parameters.
-        """
+    def __init__(self, config: PipelineConfig, sammurai_config: Optional[dict] = None):
         self.config = config
-        self.is_initialized = False
+        self.wiki_path = str(Path(config.wiki_path).expanduser())
+        self.store = CogneeStore(
+            wiki_path=self.wiki_path,
+            dataset_name=config.dataset_name,
+            config=sammurai_config,
+        )
 
-    async def ingest_documents(self, file_paths: List[str]) -> Dict[str, Any]:
-        """
-        Parses, chunks, embeds, and stores documents in the vector database.
+    def ingest(self) -> dict:
+        """Incrementally index wiki files into cognee."""
+        count = self.store.ingest_wiki()
+        if count == 0:
+            return {"status": "empty", "files_processed": 0}
+        return {"status": "success", "files_processed": count}
 
-        The data flow follows: File Paths -> Raw Text -> Text Chunks -> Embeddings -> Vector Store.
+    def rebuild(self) -> dict:
+        """Full re-index: prune cognee state and re-ingest all wiki files."""
+        count = self.store.rebuild_index()
+        return {"status": "success", "files_processed": count}
 
-        Args:
-            file_paths (List[str]): A list of local paths to documents (PDF, TXT, etc.).
+    def query(self, question: str, top_k: Optional[int] = None) -> dict:
+        """RAG query: retrieve context + generate answer via LLM."""
+        from src.backend.llm_client import LLMClient
 
-        Returns:
-            Dict[str, Any]: A summary of the ingestion process, including 'count' of chunks processed.
+        context = self.store.get_relevant_context(question, context_limit=4000)
 
-        Raises:
-            FileNotFoundError: If a provided file path does not exist.
-            ValueError: If the document format is unsupported.
-        """
-        # Parallel processing logic: We use asyncio.gather to parse multiple files concurrently.
-        # Refer to docs/architecture/parallel_processing.md for the concurrency strategy
-        # regarding CPU-bound parsing vs I/O-bound embedding API calls.
-        tasks = [self._process_single_file(path) for path in file_paths]
-        results = await asyncio.gather(*tasks)
-        
-        self.is_initialized = True
-        return {"status": "success", "chunks_processed": sum(results)}
+        if not context:
+            return {
+                "answer": "No relevant information found in the wiki.",
+                "sources": [],
+            }
 
-    async def query(self, question: str, top_k: int = 5) -> Dict[str, Any]:
-        """
-        Executes a RAG query by retrieving context and generating an answer.
+        llm = LLMClient(model=self.config.llm_model)
+        response = llm.generate_json(
+            system_prompt=(
+                "You are a knowledge assistant. Answer the question using ONLY "
+                "the provided context. If the context doesn't contain the answer, "
+                "say so. Be concise. Respond with JSON: "
+                '{"answer": "your answer here"}'
+            ),
+            user_message=f"Context:\n{context}\n\nQuestion: {question}",
+        )
 
-        The data flow follows: Question -> Query Embedding -> Vector Search -> 
-        Context Retrieval -> LLM Prompt -> Generated Answer.
-
-        Args:
-            question (str): The user's natural language query.
-            top_k (int): The number of relevant document chunks to retrieve as context.
-
-        Returns:
-            Dict[str, Any]: A dictionary containing 'answer' (str) and 'sources' (list of metadata).
-
-        Raises:
-            RuntimeError: If the pipeline has not been initialized with documents.
-        """
-        if not self.is_initialized:
-            raise RuntimeError("Pipeline must be initialized with documents before querying.")
-
-        context = await self._retrieve_context(question, top_k)
-        answer = await self._generate_response(question, context)
-        
         return {
-            "answer": answer,
-            "sources": [item.metadata for item in context]
+            "answer": response.get("answer", "Unable to generate answer."),
+            "sources": [],
         }
-
-    async def _process_single_file(self, path: str) -> int:
-        """
-        Internal helper to process a single document.
-
-        Args:
-            path (str): Path to the file.
-
-        Returns:
-            int: Number of chunks generated and stored.
-        """
-        # Implementation details for parsing and embedding
-        return 0
-
-    async def _retrieve_context(self, question: str, top_k: int) -> List[Any]:
-        """
-        Internal helper to perform vector similarity search.
-
-        Args:
-            question (str): The query string.
-            top_k (int): Number of results to return.
-
-        Returns:
-            List[Any]: A list of document chunk objects.
-        """
-        return []
-
-    async def _generate_response(self, question: str, context: List[Any]) -> str:
-        """
-        Internal helper to invoke the LLM with context.
-
-        Args:
-            question (str): The user's query.
-            context (List[Any]): Retrieved document segments.
-
-        Returns:
-            str: The generated text response.
-        """
-        return ""

@@ -1,8 +1,18 @@
 [project]
-name = "project-name"
-version = "0.1.0"
-description = "Project description"
-requires-python = ">=3.11"
+name = "sammurai"
+version = "0.2.0"
+description = "WhatsApp Second Brain — autonomous wiki compiler + RAG agent"
+requires-python = ">=3.12"
+
+[project.scripts]
+sammurai = "src.backend.cli:main"
+sammurai-init-brain = "src.backend.brain_init:main"
+sammurai-digest = "src.backend.digest_runner:main"
+sammurai-agent = "src.backend.agent_daemon:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
 
 [tool.ruff]
 line-length = 88

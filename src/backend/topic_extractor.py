@@ -14,7 +14,7 @@ from src.backend.models import (
     ActionableItem,
 )
 from src.backend.llm_client import LLMClient
-from src.backend.document_parser import DocumentParser
+from src.backend.rich_document_parser import RichDocumentParser as DocumentParser
 from src.backend.utils import redact_pii
 
 
