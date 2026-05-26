@@ -671,6 +671,7 @@ ENTITY EXTRACTION RULES:
                     )
 
             # Process entities
+            entity_failures = 0
             for entity in parsed_data.get("entities", []):
                 idx = entity.get("original_message_index")
 
@@ -682,6 +683,7 @@ ENTITY EXTRACTION RULES:
                     logger.warning(
                         f"Invalid entity message index type: {type(idx)} ({idx})"
                     )
+                    entity_failures += 1
                     continue
 
                 # Validate index before accessing messages
@@ -689,6 +691,13 @@ ENTITY EXTRACTION RULES:
                     logger.warning(
                         f"Invalid entity message index {idx} (batch offset: {batch_offset}), skipping entity"
                     )
+                    entity_failures += 1
+                    continue
+
+                # Validate entity name (required field)
+                if not entity.get("entity_name"):
+                    logger.warning("Entity missing name, skipping")
+                    entity_failures += 1
                     continue
 
                 # Adjust index by batch offset to get absolute position
@@ -708,6 +717,14 @@ ENTITY EXTRACTION RULES:
                         "group_jid": original_msg.get("group_jid"),
                         "message_ref": absolute_idx,
                     }
+                )
+
+            # Log extraction quality metrics
+            if entity_failures > 0:
+                failure_rate = entity_failures / (len(entities) + entity_failures) * 100 if entities else 100
+                logger.warning(
+                    f"Entity extraction failures: {entity_failures}/{len(entities) + entity_failures} "
+                    f"({failure_rate:.1f}% failure rate)"
                 )
 
             return {"action_items": action_items, "entities": entities}

@@ -536,6 +536,7 @@ def extract_from_group(
 
                     # Second pass: add relations (now all targets exist)
                     relation_count = 0
+                    relation_failures = 0
                     for entity in entities:
                         for relation in entity.get("relations", []):
                             rel_id = entity_store.add_relation(
@@ -548,8 +549,12 @@ def extract_from_group(
                             )
                             if rel_id:
                                 relation_count += 1
+                            else:
+                                relation_failures += 1
 
                     logger.info(f"Stored {len(entities)} entities, {relation_count} relations in entity store")
+                    if relation_failures > 0:
+                        logger.warning(f"Failed to create {relation_failures} relations (missing target entities)")
 
             except Exception as e:
                 if use_llm:
@@ -723,6 +728,7 @@ def extract_from_all_groups(
 
                     # Second pass: add relations (now all targets exist)
                     relation_count = 0
+                    relation_failures = 0
                     for entity in entities:
                         for relation in entity.get("relations", []):
                             rel_id = entity_store.add_relation(
@@ -735,8 +741,12 @@ def extract_from_all_groups(
                             )
                             if rel_id:
                                 relation_count += 1
+                            else:
+                                relation_failures += 1
 
                     logger.info(f"Stored {len(entities)} entities, {relation_count} relations in entity store")
+                    if relation_failures > 0:
+                        logger.warning(f"Failed to create {relation_failures} relations (missing target entities)")
 
             except Exception as e:
                 if use_llm:
