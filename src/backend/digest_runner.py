@@ -23,8 +23,8 @@ from src.backend.cli import extract_from_group, process_groups_parallel
 logger = logging.getLogger(__name__)
 
 
-def load_config() -> dict:
-    config_path = Path(__file__).resolve().parent.parent.parent / "config.yaml"
+def load_config(config_file: str = "config.yaml") -> dict:
+    config_path = Path(__file__).resolve().parent.parent.parent / config_file
     if config_path.exists():
         with open(config_path) as f:
             return yaml.safe_load(f)
@@ -213,7 +213,8 @@ def run_daily_digest(config: dict) -> None:
         logger.info("Wiki compiled and committed")
 
         # Rebuild cognee index
-        store = CogneeStore(wiki_path=str(wiki_path), config=config)
+        dataset_name = wiki_config.get("dataset_name", "sammurai_wiki")
+        store = CogneeStore(wiki_path=str(wiki_path), dataset_name=dataset_name, config=config)
         count = store.rebuild_index()
         logger.info(f"Cognee index rebuilt: {count} files")
     else:
@@ -231,6 +232,12 @@ def main():
         type=int,
         help="Days to look back (overrides config.yaml cron.days)",
     )
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="config.yaml",
+        help="Config file to use (default: config.yaml)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -239,7 +246,7 @@ def main():
     )
 
     try:
-        config = load_config()
+        config = load_config(args.config)
         # Override days if CLI arg provided
         if args.days is not None:
             config.setdefault("cron", {})["days"] = args.days

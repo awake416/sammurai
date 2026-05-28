@@ -136,5 +136,5 @@ class CogneeStore:
     async def _search(self, query: str) -> list[dict]:
         import cognee
 
-        results = await cognee.search(query)
+        results = await cognee.search(query, datasets=self.dataset_name)
         return results if results else []

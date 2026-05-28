@@ -549,7 +549,8 @@ def extract_from_group(
 
                 # Store entities in SQLite
                 if entities:
-                    wiki_path = Path.home() / "sammurai-brain"
+                    wiki_config = config.get("wiki", {})
+                    wiki_path = Path(wiki_config.get("path", "~/sammurai-brain")).expanduser()
                     entity_store = EntityStore(db_path=str(wiki_path / "sammurai.db"))
 
                     # First pass: store all entities (must exist before relations)
@@ -741,7 +742,8 @@ def extract_from_all_groups(
 
                 # Store entities in SQLite
                 if entities:
-                    wiki_path = Path.home() / "sammurai-brain"
+                    wiki_config = config.get("wiki", {})
+                    wiki_path = Path(wiki_config.get("path", "~/sammurai-brain")).expanduser()
                     entity_store = EntityStore(db_path=str(wiki_path / "sammurai.db"))
 
                     # First pass: store all entities (must exist before relations)

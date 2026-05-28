@@ -1,0 +1,10 @@
+[Unit]
+Description=Sammurai Daily Digest Timer (Work)
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

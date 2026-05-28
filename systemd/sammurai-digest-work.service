@@ -1,0 +1,14 @@
+[Unit]
+Description=Sammurai Daily Digest (Work)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/ai/sammurai
+ExecStart=%h/.venv/bin/python -m src.backend.digest_runner --config config-work.yaml
+EnvironmentFile=%h/.config/sammurai/env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
