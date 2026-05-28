@@ -59,6 +59,23 @@ def run_daily_digest(config: dict) -> None:
             logger.info(f"Loaded {len(email_messages)} email messages from last {days} days")
             email_db.close()
 
+            # Filter by domain allowlist
+            from_filters = email_config.get("sync", {}).get("from_filters", [])
+            if from_filters:
+                filtered_messages = [
+                    msg for msg in email_messages
+                    if any(
+                        msg["sender_jid"].endswith(f"@{domain}") or
+                        msg["sender_jid"].endswith(domain)
+                        for domain in from_filters
+                    )
+                ]
+                logger.info(
+                    f"Filtered {len(email_messages)} messages to {len(filtered_messages)} "
+                    f"from allowed domains: {from_filters}"
+                )
+                email_messages = filtered_messages
+
             # Group emails by sender domain
             from itertools import groupby
 
