@@ -15,7 +15,7 @@ import yaml
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Protocol
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -42,6 +42,20 @@ from src.backend.topic_extractor import TopicExtractor
 from src.backend.rich_document_parser import RichDocumentParser as DocumentParser
 from src.backend.entity_store import EntityStore
 from src.backend.utils import redact_pii
+
+
+class MessageSource(Protocol):
+    """Protocol for message databases (WhatsApp, Email, etc.)."""
+
+    def get_messages(
+        self, days: Optional[int] = None, limit: Optional[int] = None
+    ) -> List[dict]:
+        """Fetch messages from last N days."""
+        ...
+
+    def close(self) -> None:
+        """Close database connections."""
+        ...
 
 
 def format_timestamp(ts: Optional[str]) -> str:
@@ -396,7 +410,7 @@ def list_groups(db: WhatsAppDB, days_active: Optional[int] = None) -> None:
 
 
 def extract_from_group(
-    db: WhatsAppDB,
+    db: Optional[WhatsAppDB],
     group: str,
     config: dict,
     limit: int = 100,
@@ -411,11 +425,13 @@ def extract_from_group(
     topics_only: bool = False,
     document_parser: Optional[DocumentParser] = None,
     full: bool = False,
+    messages: Optional[List[dict]] = None,
+    group_name: Optional[str] = None,
 ) -> str:
     """Extract action items from a specific group.
 
     Args:
-        db: WhatsAppDB instance
+        db: WhatsAppDB instance (optional if messages provided)
         group: Either a group name or a group JID (if contains '@g.us')
         config: Configuration dictionary
         limit: Number of messages to fetch
@@ -430,6 +446,8 @@ def extract_from_group(
         topics_only: Whether to only show topics and skip action items
         document_parser: DocumentParser instance for enriching messages (optional)
         full: Whether to show all columns in action items table
+        messages: Pre-fetched messages (for email groups, optional)
+        group_name: Group display name (for email groups, optional)
 
     Returns:
         Formatted output string (digest + action items table)
@@ -439,30 +457,42 @@ def extract_from_group(
         logger.warning("Group name or JID is required.")
         return ""
 
-    # Check if input is a JID (contains '@g.us')
-    if "@g.us" in group:
+    # If messages provided (email group), skip DB fetch
+    if messages is not None:
         group_jid = group
-        # Try to find group name from JID
-        groups = db.get_groups()
-        group_name = next((g["name"] for g in groups if g["jid"] == group_jid), None)
-        if not group_name or not group_name.strip():
-            group_name = f"[Unnamed Group: {group_jid}]"
+        if group_name is None:
+            group_name = group
+        logger.info(f"Extracting from: {group_name} ({len(messages)} messages)")
     else:
-        # Input is a group name - look up the JID
-        group_jid = db.get_group_jid(group)
-        group_name = db._resolve_group_name(group_jid) if group_jid else group
+        # WhatsApp group: fetch from DB
+        if db is None:
+            logger.error("DB required when messages not provided")
+            return ""
 
-    # Early exit: group not found
-    if not group_jid:
-        logger.warning(
-            f"Group '{group}' not found. Use --list to see available groups."
-        )
-        return ""
+        # Check if input is a JID (contains '@g.us')
+        if "@g.us" in group:
+            group_jid = group
+            # Try to find group name from JID
+            groups = db.get_groups()
+            group_name = next((g["name"] for g in groups if g["jid"] == group_jid), None)
+            if not group_name or not group_name.strip():
+                group_name = f"[Unnamed Group: {group_jid}]"
+        else:
+            # Input is a group name - look up the JID
+            group_jid = db.get_group_jid(group)
+            group_name = db._resolve_group_name(group_jid) if group_jid else group
 
-    logger.info(f"Extracting from: {group_name} ({redact_pii(group_jid)})")
+        # Early exit: group not found
+        if not group_jid:
+            logger.warning(
+                f"Group '{group}' not found. Use --list to see available groups."
+            )
+            return ""
 
-    messages = db.get_messages_by_group(group_jid, limit, days)
-    logger.debug(f"Fetched {len(messages)} messages from group {redact_pii(group_jid)}")
+        logger.info(f"Extracting from: {group_name} ({redact_pii(group_jid)})")
+
+        messages = db.get_messages_by_group(group_jid, limit, days)
+        logger.debug(f"Fetched {len(messages)} messages from group {redact_pii(group_jid)}")
 
     if not messages:
         logger.info(

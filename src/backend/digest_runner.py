@@ -11,6 +11,7 @@ from pathlib import Path
 import yaml
 
 from src.backend.database import WhatsAppDB
+from src.backend.email_database import EmailDB
 from src.backend.rich_document_parser import RichDocumentParser as DocumentParser
 from src.backend.llm_client import LLMClient
 from src.backend.topic_extractor import TopicExtractor
@@ -47,6 +48,35 @@ def run_daily_digest(config: dict) -> None:
     db_path = config.get("database", {}).get("path", "~/.wacli/wacli.db")
     db = WhatsAppDB(str(Path(db_path).expanduser()))
 
+    # Load email messages if enabled
+    email_config = config.get("email", {})
+    email_groups = []
+    if email_config.get("enabled"):
+        email_db_path = Path(email_config["database"]["path"]).expanduser()
+        if email_db_path.exists():
+            email_db = EmailDB(str(email_db_path))
+            email_messages = email_db.get_messages(days=days)
+            logger.info(f"Loaded {len(email_messages)} email messages from last {days} days")
+            email_db.close()
+
+            # Group emails by sender domain
+            from itertools import groupby
+
+            sorted_emails = sorted(
+                email_messages, key=lambda m: m["sender_jid"].split("@")[-1]
+            )
+            for domain, msgs in groupby(
+                sorted_emails, key=lambda m: m["sender_jid"].split("@")[-1]
+            ):
+                email_groups.append(
+                    {
+                        "jid": f"email:{domain}",
+                        "name": f"Email: {domain}",
+                        "messages": list(msgs),
+                    }
+                )
+            logger.info(f"Grouped emails into {len(email_groups)} domains")
+
     document_parser = DocumentParser()
     topic_extractor = TopicExtractor(llm_client, document_parser=document_parser)
 
@@ -71,7 +101,7 @@ def run_daily_digest(config: dict) -> None:
 
     logger.info(f"Generating daily digest for {len(unique_groups)} groups (last {days} days)")
 
-    # Generate digest using existing pipeline
+    # Process WhatsApp groups
     result = process_groups_parallel(
         db=db,
         groups=unique_groups,
@@ -86,6 +116,34 @@ def run_daily_digest(config: dict) -> None:
         digest=True,
         document_parser=document_parser,
     )
+
+    # Process email groups if any
+    if email_groups:
+        logger.info(f"Processing {len(email_groups)} email domains")
+        email_results = []
+        for email_group in email_groups:
+            try:
+                email_result = extract_from_group(
+                    db=None,
+                    group=email_group["jid"],
+                    group_name=email_group["name"],
+                    messages=email_group["messages"],
+                    config=config,
+                    use_llm=True,
+                    llm_client=llm_client,
+                    batch_size=batch_size,
+                    parallel_batches=batch_workers,
+                    topic_extractor=topic_extractor,
+                    digest=True,
+                    document_parser=document_parser,
+                )
+                if email_result:
+                    email_results.append(email_result)
+            except Exception as e:
+                logger.error(f"Error processing email group {email_group['name']}: {e}")
+
+        if email_results:
+            result = result + "\n\n" + "\n\n".join(email_results)
 
     db.close()
 

@@ -25,6 +25,49 @@ journalctl --user -u sammurai-agent.service -f
 
 **Note:** This service provides standalone agent functionality. Currently, Nous Research Hermes is used instead via skill integration (see `integrations/hermes/`).
 
+### emailsync.service
+
+Gmail sync daemon that polls Gmail API for new messages every 5 minutes.
+
+**Status:**
+```bash
+systemctl --user status emailsync.service
+```
+
+**Logs:**
+```bash
+journalctl --user -u emailsync.service -f
+```
+
+**What it does:**
+1. Authenticates via OAuth2 (browser consent on first run)
+2. Fetches new emails via Gmail API (historyId-based incremental sync)
+3. Stores messages in `~/.emailsync/email.db`
+4. Syncs every 5 minutes (configurable via `email.sync.poll_interval`)
+
+**Config:**
+- Enable/disable: `email.enabled` in `config.yaml` (default: false)
+- Poll interval: `email.sync.poll_interval` (default: 300s)
+- Labels: `email.sync.labels_to_sync` (default: ["INBOX", "IMPORTANT"])
+- Skip labels: `email.sync.skip_labels` (default: ["SPAM", "[Gmail]/Sent Mail"])
+
+**OAuth Setup (first run only):**
+```bash
+# Install Gmail dependencies
+pip install -e ".[gmail]"
+
+# Download credentials.json from GCP Console
+# Place at ~/.emailsync/credentials.json
+
+# Run sync manually (opens browser for OAuth consent)
+sammurai-emailsync
+
+# After consent, token saved to ~/.emailsync/token.json
+# Service will auto-refresh token
+```
+
+**Note:** Service will exit immediately if `email.enabled: false` in config.
+
 ### sammurai-digest.timer
 
 Daily timer that runs digest extraction at 23:59 UTC.
@@ -64,6 +107,7 @@ Services should already be installed at:
 - `~/.config/systemd/user/sammurai-agent.service`
 - `~/.config/systemd/user/sammurai-digest.service`
 - `~/.config/systemd/user/sammurai-digest.timer`
+- `~/.config/systemd/user/emailsync.service`
 
 If missing, copy from this directory:
 
@@ -71,8 +115,12 @@ If missing, copy from this directory:
 cp systemd/*.service ~/.config/systemd/user/
 cp systemd/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
-systemctl --user enable sammurai-digest.timer
-systemctl --user start sammurai-digest.timer
+
+# Enable digest timer
+systemctl --user enable --now sammurai-digest.timer
+
+# Enable email sync (requires OAuth setup first)
+systemctl --user enable --now emailsync.service
 ```
 
 ## Environment Variables
@@ -95,6 +143,9 @@ All services log to systemd journal:
 ```bash
 # Agent logs
 journalctl --user -u sammurai-agent.service -f
+
+# Email sync logs
+journalctl --user -u emailsync.service -f
 
 # Digest logs
 journalctl --user -u sammurai-digest.service -f

@@ -9,6 +9,14 @@ sammurai = "src.backend.cli:main"
 sammurai-init-brain = "src.backend.brain_init:main"
 sammurai-digest = "src.backend.digest_runner:main"
 sammurai-agent = "src.backend.agent_daemon:main"
+sammurai-emailsync = "src.backend.emailsync_daemon:main"
+
+[project.optional-dependencies]
+gmail = [
+  "google-api-python-client>=2.100.0",
+  "google-auth-oauthlib>=1.1.0",
+  "google-auth-httplib2>=0.1.1",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

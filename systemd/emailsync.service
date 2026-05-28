@@ -1,0 +1,16 @@
+[Unit]
+Description=Gmail Sync Daemon for Sammurai
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ai/sammurai
+ExecStart=%h/.venv/bin/python -m src.backend.emailsync_daemon
+Restart=on-failure
+RestartSec=60
+EnvironmentFile=%h/.config/sammurai/env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
