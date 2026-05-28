@@ -34,6 +34,46 @@ class OllamaClient:
         except Exception:
             return False
 
+    def generate(
+        self,
+        prompt: str,
+        system: str = "",
+        max_tokens: int = 200,
+        temperature: float = 0.1,
+    ) -> str:
+        """Call Ollama and return plain text response.
+
+        Args:
+            prompt: User prompt
+            system: System message
+            max_tokens: Max response tokens
+            temperature: Sampling temperature
+
+        Returns:
+            Model response text
+
+        Raises:
+            RuntimeError: If Ollama call fails
+        """
+        full_prompt = f"{system}\n\n{prompt}" if system else prompt
+
+        try:
+            resp = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": full_prompt,
+                    "stream": False,
+                    "options": {"temperature": temperature, "num_predict": max_tokens},
+                },
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return resp.json().get("response", "")
+        except Exception as e:
+            logger.warning("Ollama call failed: %s", e)
+            raise RuntimeError(f"Ollama call failed: {e}")
+
     def generate_json(
         self,
         system_prompt: str,

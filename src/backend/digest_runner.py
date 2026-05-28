@@ -12,6 +12,7 @@ import yaml
 
 from src.backend.database import WhatsAppDB
 from src.backend.email_database import EmailDB
+from src.backend.email_classifier import EmailClassifier
 from src.backend.rich_document_parser import RichDocumentParser as DocumentParser
 from src.backend.llm_client import LLMClient
 from src.backend.topic_extractor import TopicExtractor
@@ -75,6 +76,28 @@ def run_daily_digest(config: dict) -> None:
                     f"from allowed domains: {from_filters}"
                 )
                 email_messages = filtered_messages
+
+            # Filter by subject importance (hybrid keyword + LLM)
+            subject_filters = email_config.get("sync", {}).get("subject_filters", {})
+            if subject_filters:
+                classifier = EmailClassifier(
+                    include_keywords=subject_filters.get("include_keywords", []),
+                    exclude_keywords=subject_filters.get("exclude_keywords", []),
+                    use_llm=subject_filters.get("use_llm_classifier", False),
+                )
+
+                important_messages = []
+                for msg in email_messages:
+                    subject = msg.get("chat_name", "")
+                    domain = msg["sender_jid"].split("@")[-1]
+                    if classifier.is_important(subject, domain):
+                        important_messages.append(msg)
+
+                logger.info(
+                    f"Subject filter: {len(email_messages)} → {len(important_messages)} "
+                    f"important emails"
+                )
+                email_messages = important_messages
 
             # Group emails by sender domain
             from itertools import groupby
