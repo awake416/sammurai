@@ -157,8 +157,11 @@ class EmailDB:
         for row in rows:
             msg = dict(row)
             # Normalize for Message model
+            msg["id"] = msg.get("msg_id", "")  # Message model expects 'id'
             msg["message"] = msg.get("text") or ""
             msg["timestamp"] = str(msg.get("ts", 0))  # Convert to str for LLM client
+            msg["sender"] = msg.get("sender_name")
+            msg["group_jid"] = msg.get("chat_jid")
             msg["ts"] = msg.get("ts", 0)  # Keep int for sorting
             messages.append(msg)
 
