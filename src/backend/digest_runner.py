@@ -221,6 +221,18 @@ def run_daily_digest(config: dict) -> None:
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Generate digest from WhatsApp + email messages"
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        help="Days to look back (overrides config.yaml cron.days)",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -228,6 +240,10 @@ def main():
 
     try:
         config = load_config()
+        # Override days if CLI arg provided
+        if args.days is not None:
+            config.setdefault("cron", {})["days"] = args.days
+            logger.info(f"Using --days={args.days} override")
         run_daily_digest(config)
     except Exception as e:
         logger.error(f"Digest runner failed: {e}", exc_info=True)
