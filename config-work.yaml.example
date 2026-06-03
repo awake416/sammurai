@@ -1,0 +1,76 @@
+# WhatsApp Action Item Extractor Configuration - WORK
+
+llm:
+  model: "claude-sonnet-4.6"
+  confidence_threshold: 0.75
+  batch_size: 10
+
+# Database
+database:
+  path: "~/.wacli/wacli.db"
+
+# Parser
+parser:
+  use_llm: true
+  fallback_to_rule_based: true
+
+# Parallel processing
+parallel:
+  # Work groups: professional chats, vendors, projects
+  # Replace with your WhatsApp group JIDs from wacli database
+  groups:
+    - "WORK_GROUP_JID_1"
+    - "WORK_GROUP_JID_2"
+    - "WORK_GROUP_JID_3"
+
+  workers: 5
+  batch_workers: 3
+
+# Wiki (Second Brain) - WORK
+wiki:
+  path: "~/sammurai-brain-work"
+  schema: "SCHEMA.md"
+  dataset_name: "sammurai_work"
+
+# Cron / Daily Digest
+cron:
+  days: 1
+  groups: []
+
+# Embeddings for RAG
+embeddings:
+  model: "text-embedding-3-small"
+
+# Agent (Hermes - WhatsApp query interface)
+agent:
+  brain_chat_jid: "YOUR_PHONE_NUMBER@s.whatsapp.net"  # Replace with your WhatsApp number
+  poll_interval: 1800
+  rate_limit: 10
+  wacli_path: "wacli"
+
+# Email Sync (Gmail API) - WORK
+email:
+  enabled: true
+  database:
+    path: "~/.emailsync/email-work.db"
+  sync:
+    poll_interval: 300
+    max_results_per_sync: 100
+    labels_to_sync:
+      - "INBOX"
+      - "IMPORTANT"
+    skip_labels:
+      - "SPAM"
+      - "[Gmail]/Sent Mail"
+      - "[Gmail]/Trash"
+    from_filters:  # Work email domains to monitor
+      - "your-company.com"
+      # Add your actual work email domains here
+    subject_filters:
+      use_llm_classifier: false  # Disabled for work (all work emails important)
+      include_keywords: []
+      exclude_keywords: []
+    attachment_types:
+      - "application/pdf"
+      - "image/jpeg"
+      - "image/png"

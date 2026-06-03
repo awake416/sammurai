@@ -86,6 +86,9 @@ class GmailClient:
             self.token_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.token_path, "w") as f:
                 f.write(self.creds.to_json())
+            # Set restrictive permissions (owner read/write only)
+            import os
+            os.chmod(self.token_path, 0o600)
 
         self.service = build("gmail", "v1", credentials=self.creds)
 
@@ -95,6 +98,7 @@ class GmailClient:
         labels: list[str] = None,
         skip_labels: list[str] = None,
         max_results: int = 100,
+        after_date: Optional[str] = None,
     ) -> tuple[list[dict], str]:
         """Fetch messages since last historyId.
 
@@ -103,6 +107,7 @@ class GmailClient:
             labels: Label IDs to include (e.g., ["INBOX", "IMPORTANT"])
             skip_labels: Label IDs to exclude (e.g., ["SPAM"])
             max_results: Maximum messages to fetch
+            after_date: Date filter in YYYY/MM/DD format (e.g., "2026/05/01")
 
         Returns:
             Tuple of (message_dicts, new_history_id)
@@ -117,6 +122,8 @@ class GmailClient:
 
         if since_history_id:
             # Incremental sync via history API
+            # Note: labelId param only accepts 1 label, so we filter all labels
+            # in _should_include_message instead
             try:
                 history = (
                     self.service.users()
@@ -126,7 +133,6 @@ class GmailClient:
                         startHistoryId=since_history_id,
                         maxResults=max_results,
                         historyTypes=["messageAdded"],
-                        labelId=labels[0] if labels else None,
                     )
                     .execute()
                 )
@@ -158,29 +164,64 @@ class GmailClient:
                 else:
                     raise
 
-        # Full sync (first run or historyId expired)
+        # Full sync (first run or historyId expired) with pagination
         query_parts = []
+
+        # Labels use OR logic (any label matches)
         if labels:
-            query_parts.extend([f"label:{label}" for label in labels])
+            label_query = " OR ".join([f"label:{label}" for label in labels])
+            query_parts.append(f"{{{label_query}}}")
+
+        # Skip labels use AND NOT logic (exclude all)
+        # Quote labels containing spaces or special chars
         if skip_labels:
-            query_parts.extend([f"-label:{label}" for label in skip_labels])
+            for label in skip_labels:
+                if " " in label or "/" in label or "[" in label:
+                    query_parts.append(f'-label:"{label}"')
+                else:
+                    query_parts.append(f"-label:{label}")
+
+        # Date filter (after:YYYY/MM/DD)
+        if after_date:
+            query_parts.append(f"after:{after_date}")
 
         query = " ".join(query_parts) if query_parts else None
 
         try:
-            result = (
-                self.service.users()
-                .messages()
-                .list(userId="me", q=query, maxResults=max_results)
-                .execute()
-            )
+            page_token = None
+            total_fetched = 0
 
-            message_ids = [m["id"] for m in result.get("messages", [])]
+            while True:
+                result = (
+                    self.service.users()
+                    .messages()
+                    .list(
+                        userId="me",
+                        q=query,
+                        maxResults=min(max_results - total_fetched, 500),
+                        pageToken=page_token
+                    )
+                    .execute()
+                )
 
-            for msg_id in message_ids:
-                full_msg = self._fetch_full_message(msg_id)
-                if full_msg:
-                    messages.append(self._parse_message(full_msg))
+                message_ids = [m["id"] for m in result.get("messages", [])]
+
+                for msg_id in message_ids:
+                    full_msg = self._fetch_full_message(msg_id)
+                    if full_msg:
+                        messages.append(self._parse_message(full_msg))
+                        total_fetched += 1
+
+                        if total_fetched >= max_results:
+                            break
+
+                page_token = result.get("nextPageToken")
+
+                # Stop if no more pages or hit limit
+                if not page_token or total_fetched >= max_results:
+                    break
+
+                logger.info(f"Fetched {total_fetched}/{max_results} messages, continuing...")
 
             # Get current historyId for next sync
             profile = self.service.users().getProfile(userId="me").execute()

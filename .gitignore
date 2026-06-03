@@ -208,6 +208,8 @@ __marimo__/
 
 # Config (contains group IDs and local settings)
 config.yaml
+config-personal.yaml
+config-work.yaml
 
 # Sammurai project specific
 output/
