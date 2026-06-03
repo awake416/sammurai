@@ -456,10 +456,11 @@ If it's NOT an action item, respond with:
                         logger.error(f"Error in batch {batch_num + 1}: {e}")
                         raise  # Re-raise to be caught by the caller
 
-            # Flatten results in order
+            # Flatten results in order, skipping any failed batches
             for batch_result in batch_results:
-                all_action_items.extend(batch_result.get("action_items", []))
-                all_entities.extend(batch_result.get("entities", []))
+                if isinstance(batch_result, dict):
+                    all_action_items.extend(batch_result.get("action_items", []))
+                    all_entities.extend(batch_result.get("entities", []))
         else:
             # Sequential processing
             for batch_num, (batch, offset) in enumerate(batches, 1):

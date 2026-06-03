@@ -8,31 +8,63 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Must set env before cognee import (cognee reads env at module load)
+def _setup_cognee_env_early() -> None:
+    """Set cognee env vars from litellm config before cognee import."""
+    if os.environ.get("_COGNEE_ENV_SET"):
+        return  # Already configured
+
+    litellm_api_key = os.environ.get("LITELLM_API_KEY", "")
+    litellm_base_url = os.environ.get("LITELLM_BASE_URL", "")
+
+    defaults = {
+        "LLM_API_KEY": litellm_api_key,
+        "LLM_ENDPOINT": litellm_base_url,
+        "LLM_MODEL": "openai/gemini-2.5-flash",
+        "LLM_PROVIDER": "custom",
+        "EMBEDDING_API_KEY": litellm_api_key,
+        "EMBEDDING_ENDPOINT": litellm_base_url,
+        "EMBEDDING_MODEL": "openai/text-embedding-3-small",
+        "EMBEDDING_PROVIDER": "custom",
+        "EMBEDDING_DIMENSIONS": "1536",
+        "COGNEE_SKIP_CONNECTION_TEST": "true",
+        "_COGNEE_ENV_SET": "1",
+    }
+    for key, val in defaults.items():
+        if not os.environ.get(key) and val:
+            os.environ[key] = val
+
+_setup_cognee_env_early()
+
 
 def _setup_cognee_env(config: Optional[dict] = None) -> None:
-    """Map sammurai/litellm env vars to cognee's expected env vars."""
+    """Map sammurai/litellm env vars to cognee's expected env vars.
+
+    Uses litellm remote API for both LLM and embeddings (slow but reliable).
+    Ollama embeddings incompatible: qwen2.5:7b outputs 3584 dims, cognee needs 1536.
+    """
     litellm_api_key = os.environ.get("LITELLM_API_KEY", "")
     litellm_base_url = os.environ.get("LITELLM_BASE_URL", "")
 
     if config:
         llm_cfg = config.get("llm", {})
         embed_cfg = config.get("embeddings", {})
-        model = llm_cfg.get("model", "claude-sonnet-4.6")
+        llm_model = llm_cfg.get("model", "gemini-2.5-flash")  # Fast model for cognee
         embed_model = embed_cfg.get("model", "text-embedding-3-small")
     else:
-        model = os.environ.get("LLM_MODEL_NAME", "gemini-2.5-flash")
+        llm_model = os.environ.get("LLM_MODEL_NAME", "gemini-2.5-flash")
         embed_model = "text-embedding-3-small"
 
     # litellm proxy requires "openai/" prefix for custom endpoints
-    if "/" not in model:
-        model = f"openai/{model}"
+    if "/" not in llm_model:
+        llm_model = f"openai/{llm_model}"
     if "/" not in embed_model:
         embed_model = f"openai/{embed_model}"
 
     defaults = {
         "LLM_API_KEY": litellm_api_key,
         "LLM_ENDPOINT": litellm_base_url,
-        "LLM_MODEL": model,
+        "LLM_MODEL": llm_model,
         "LLM_PROVIDER": "custom",
         "EMBEDDING_API_KEY": litellm_api_key,
         "EMBEDDING_ENDPOINT": litellm_base_url,
@@ -41,6 +73,7 @@ def _setup_cognee_env(config: Optional[dict] = None) -> None:
         "EMBEDDING_DIMENSIONS": "1536",
         "COGNEE_SKIP_CONNECTION_TEST": "true",
     }
+
     for key, val in defaults.items():
         if not os.environ.get(key) and val:
             os.environ[key] = val
@@ -135,6 +168,47 @@ class CogneeStore:
 
     async def _search(self, query: str) -> list[dict]:
         import cognee
+        import hashlib
+        import json
+        from pathlib import Path
+        import time
 
+        # Query cache (5min TTL)
+        cache_dir = Path.home() / ".cache" / "sammurai" / "cognee"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+
+        query_hash = hashlib.sha256(f"{self.dataset_name}:{query}".encode()).hexdigest()[:16]
+        cache_file = cache_dir / f"{query_hash}.json"
+
+        # Check cache
+        if cache_file.exists():
+            cache_age = time.time() - cache_file.stat().st_mtime
+            if cache_age < 300:  # 5min TTL
+                try:
+                    with open(cache_file) as f:
+                        cached = json.load(f)
+                    logger.info("Cognee cache hit: %.1fs old", cache_age)
+                    return cached
+                except Exception:
+                    pass
+
+        # Cache miss - query cognee
         results = await cognee.search(query, datasets=self.dataset_name)
-        return results if results else []
+        results = results if results else []
+
+        # Save cache
+        try:
+            # Strip non-JSON-serializable fields (UUIDs)
+            cacheable = []
+            for r in results:
+                cached_r = {
+                    "dataset_name": r.get("dataset_name"),
+                    "search_result": r.get("search_result", []),
+                }
+                cacheable.append(cached_r)
+            with open(cache_file, "w") as f:
+                json.dump(cacheable, f)
+        except Exception as e:
+            logger.warning("Cache save failed: %s", e)
+
+        return results

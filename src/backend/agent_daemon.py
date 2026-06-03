@@ -1,5 +1,6 @@
 """Agent daemon: polls WhatsApp for queries, routes to Hermes, dispatches responses."""
 
+import argparse
 import json
 import logging
 import random
@@ -214,21 +215,31 @@ class AgentDaemon:
         STATE_FILE.write_text(json.dumps(data), encoding="utf-8")
 
 
-def load_config() -> dict:
-    config_path = Path(__file__).resolve().parent.parent.parent / "config.yaml"
-    if config_path.exists():
-        with open(config_path) as f:
+def load_config(config_path: str = "config.yaml") -> dict:
+    """Load config from specified path."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    config_file = repo_root / config_path
+    if config_file.exists():
+        with open(config_file) as f:
             return yaml.safe_load(f)
     return {}
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Sammurai agent daemon")
+    parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Config file path (default: config.yaml)",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    config = load_config()
+    config = load_config(args.config)
     try:
         daemon = AgentDaemon(config)
         daemon.run()

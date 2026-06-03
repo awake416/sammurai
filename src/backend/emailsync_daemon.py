@@ -3,6 +3,7 @@
 Incremental sync via historyId. Runs continuously with configurable poll interval.
 """
 
+import argparse
 import logging
 import sys
 import time
@@ -16,23 +17,31 @@ from src.backend.gmail_client import GmailClient
 logger = logging.getLogger(__name__)
 
 
-def load_config() -> dict:
-    """Load config from config.yaml."""
-    config_path = Path(__file__).resolve().parent.parent.parent / "config.yaml"
-    if config_path.exists():
-        with open(config_path) as f:
+def load_config(config_path: str = "config.yaml") -> dict:
+    """Load config from specified path."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    config_file = repo_root / config_path
+    if config_file.exists():
+        with open(config_file) as f:
             return yaml.safe_load(f)
     return {}
 
 
 def main() -> None:
     """Email sync daemon entry point."""
+    parser = argparse.ArgumentParser(description="Gmail sync daemon")
+    parser.add_argument(
+        "--config",
+        default="config.yaml",
+        help="Config file path (default: config.yaml)",
+    )
+    args = parser.parse_args()
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    config = load_config()
+    config = load_config(args.config)
     email_config = config.get("email", {})
 
     if not email_config.get("enabled"):
@@ -61,6 +70,10 @@ def main() -> None:
 
     while True:
         try:
+            # Re-authenticate each iteration to get fresh HTTP connection
+            # Fixes SSL EOF / broken pipe errors from stale connections
+            gmail.authenticate()
+
             last_history_id = email_db.get_last_history_id()
             logger.debug(f"Last historyId: {last_history_id}")
 
