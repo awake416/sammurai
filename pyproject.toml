@@ -10,6 +10,7 @@ sammurai-init-brain = "src.backend.brain_init:main"
 sammurai-digest = "src.backend.digest_runner:main"
 sammurai-agent = "src.backend.agent_daemon:main"
 sammurai-emailsync = "src.backend.emailsync_daemon:main"
+sammurai-memory = "src.backend.cli:memory_main"
 
 [project.optional-dependencies]
 gmail = [

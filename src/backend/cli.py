@@ -1217,5 +1217,65 @@ def main():
         db.close()
 
 
+def memory_main():
+    """CLI entry point for ambient memory operations.
+
+    Usage:
+        sammurai-memory dump "Claude Fable 5 released today" --tags ai,work
+        sammurai-memory consolidate
+        sammurai-memory lint
+    """
+    import argparse as _argparse
+
+    p = _argparse.ArgumentParser(description="Sammurai memory management")
+    common = _argparse.ArgumentParser(add_help=False)
+    common.add_argument("--brain", default="~/sammurai-brain", help="Brain directory")
+    sub = p.add_subparsers(dest="cmd")
+
+    # memory dump
+    d = sub.add_parser("dump", parents=[common], help="Append a raw note to the ambient inbox")
+    d.add_argument("note", help="Free-form note text")
+    d.add_argument("--tags", help="Comma-separated routing tags")
+
+    # memory consolidate
+    c = sub.add_parser("consolidate", parents=[common], help="Process inbox → compiled/ facts")
+    c.add_argument("--config", default="config.yaml", help="Config file")
+
+    # memory lint
+    lint_p = sub.add_parser("lint", parents=[common], help="Validate compiled/ links and orphans")
+
+    args = p.parse_args()
+
+    if args.cmd == "dump":
+        from src.backend.memory_inbox import MemoryInbox
+        inbox = MemoryInbox(args.brain)
+        tags = [t.strip() for t in args.tags.split(",")] if args.tags else None
+        inbox.dump(args.note, tags=tags)
+        print(f"Saved to inbox: {inbox._session_file}")
+
+    elif args.cmd == "consolidate":
+        import yaml as _yaml
+        from src.backend.memory_consolidator import MemoryConsolidator
+        from src.backend.llm_client import LLMClient as _LLMClient
+
+        config_path = Path(args.config)
+        cfg = _yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
+        llm_cfg = cfg.get("llm", {})
+        llm = _LLMClient(model=llm_cfg.get("model", "claude-sonnet-4.6"))
+        con = MemoryConsolidator(brain_path=args.brain, llm_client=llm)
+        n = con.run()
+        print(f"Consolidated {n} facts")
+
+    elif args.cmd == "lint":
+        from src.backend.memory_linter import MemoryLinter
+        linter = MemoryLinter(brain_path=args.brain)
+        errors = linter.run(raise_on_error=True)
+        if not errors:
+            print("Lint passed — no broken links or orphaned pages")
+
+    else:
+        p.print_help()
+
+
 if __name__ == "__main__":
     main()

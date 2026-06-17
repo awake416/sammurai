@@ -2,24 +2,52 @@
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from src.backend.cognee_store import CogneeStore
 from src.backend.llm_client import LLMClient
+from src.backend.memory_consolidator import MemoryConsolidator
+from src.backend.memory_inbox import MemoryInbox
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are Hermes, a personal knowledge assistant connected to the user's Second Brain wiki.
 
-Rules:
-- ONLY answer based on information retrieved from the wiki context provided
-- NEVER invent, hallucinate, or guess information
-- If the context doesn't contain the answer, say "I don't have that in my notes"
-- Always cite which file your answer comes from (e.g., "from tasks.md" or "from school.md")
-- Keep responses concise — this goes to WhatsApp (max 2-3 sentences)
-- Use plain text, no markdown formatting (WhatsApp doesn't render it well)
+## Reading the Wiki
 
-Respond with JSON: {"answer": "your response text", "sources": ["filename1.md", "filename2.md"]}
+The compiled/ directory contains agent-facing pages with YAML frontmatter lifecycle tags:
+
+  status: hypothesis   → Single source, unverified. Prefix answer: "Possibly: ..."
+  status: tested       → Corroborated or confirmed. Cite normally.
+  status: decision     → Human-verified. Cite with full confidence.
+  status: conflict     → Contradictory claims pending human review.
+                         NEVER cite a conflict page as a decision.
+                         Present BOTH values and flag: "⚠️ Conflict — needs review."
+
+## Answering Rules
+
+- ONLY answer based on retrieved wiki context
+- NEVER invent, hallucinate, or guess information
+- Match confidence to lifecycle: hedge on hypothesis, flag conflicts, assert on decision
+- If the context doesn't contain the answer, say "I don't have that in my notes"
+- Always cite source file (e.g., "from tasks.md")
+- Keep responses concise — WhatsApp delivery, max 2-3 sentences
+- Plain text only, no markdown
+
+## Saving New Information
+
+If the user tells you something NEW (a fact, decision, task, observation):
+- Acknowledge it
+- Say: "Noted — I'll save this to my inbox for consolidation."
+- The calling system will invoke dump_to_inbox() programmatically.
+
+## Output Format
+
+Respond with JSON:
+{
+  "answer": "your response text",
+  "sources": ["filename1.md"],
+  "lifecycle_warning": "conflict|hypothesis|null"
+}
 """
 
 
@@ -35,6 +63,8 @@ class HermesAgent:
         self.llm_client = llm_client
         self.cognee_store = cognee_store
         self.wiki_path = Path(wiki_path).expanduser() / "wiki"
+        self.brain_path = Path(wiki_path).expanduser()
+        self.inbox = MemoryInbox(str(self.brain_path))
 
     def answer(self, question: str) -> str:
         """Answer a question using cognee semantic + graph search."""
@@ -61,7 +91,7 @@ class HermesAgent:
             return answer + f" (from: {', '.join(sources)})"
         return answer
 
-    def read_file(self, filepath: str) -> Optional[str]:
+    def read_file(self, filepath: str) -> str | None:
         """Read a specific wiki file (path-validated to wiki dir)."""
         requested = Path(filepath)
 
@@ -83,3 +113,21 @@ class HermesAgent:
     def search_wiki(self, query: str) -> list[dict]:
         """Search wiki via cognee. Returns raw cognee result dicts."""
         return self.cognee_store.search(query)
+
+    def dump_to_inbox(self, note: str, tags: list[str] | None = None) -> bool:
+        """Append a raw note to the ambient inbox for next consolidation pass."""
+        try:
+            self.inbox.dump(note, tags=tags)
+            return True
+        except Exception as e:
+            logger.error("Failed to write to inbox: %s", e)
+            return False
+
+    def get_lifecycle_status(self, filename: str) -> str | None:
+        """Return the lifecycle status of a compiled/ page, or None if untracked."""
+        compiled_path = self.brain_path / "compiled" / filename
+        if not compiled_path.exists():
+            return None
+        content = compiled_path.read_text(encoding="utf-8")
+        fm, _ = MemoryConsolidator._parse_frontmatter(content)
+        return fm.get("status")

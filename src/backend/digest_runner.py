@@ -5,20 +5,22 @@ Generates digest from WhatsApp messages, saves to raw/, compiles wiki, rebuilds 
 
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
 
-from src.backend.database import WhatsAppDB
-from src.backend.email_database import EmailDB
-from src.backend.email_classifier import EmailClassifier
-from src.backend.rich_document_parser import RichDocumentParser as DocumentParser
-from src.backend.llm_client import LLMClient
-from src.backend.topic_extractor import TopicExtractor
-from src.backend.cognee_store import CogneeStore
-from src.backend.wiki_compiler import WikiCompiler
 from src.backend.cli import extract_from_group, process_groups_parallel
+from src.backend.cognee_store import CogneeStore
+from src.backend.database import WhatsAppDB
+from src.backend.email_classifier import EmailClassifier
+from src.backend.email_database import EmailDB
+from src.backend.llm_client import LLMClient
+from src.backend.memory_consolidator import MemoryConsolidator
+from src.backend.memory_linter import MemoryLinter
+from src.backend.rich_document_parser import RichDocumentParser as DocumentParser
+from src.backend.topic_extractor import TopicExtractor
+from src.backend.wiki_compiler import WikiCompiler
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +195,7 @@ def run_daily_digest(config: dict) -> None:
 
     # Save raw digest
     raw_path.mkdir(parents=True, exist_ok=True)
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
     digest_file = raw_path / f"digest_{date_str}.txt"
     digest_file.write_text(result, encoding="utf-8")
     logger.info(f"Saved raw digest: {digest_file}")
@@ -209,10 +211,29 @@ def run_daily_digest(config: dict) -> None:
     update = compiler.compile_digest(str(digest_file))
     if update and update.has_changes():
         compiler.apply_update(update)
-        compiler.git_commit(f"Auto-update: {date_str}")
-        logger.info("Wiki compiled and committed")
 
-        # Rebuild cognee index
+        # Run linter before commit — errors block git commit
+        linter = MemoryLinter(brain_path=str(wiki_path))
+        lint_errors = linter.run(raise_on_error=False)
+        if lint_errors:
+            logger.error(
+                "Linter found %d error(s) — skipping git commit. Fix links/orphans first.",
+                len(lint_errors),
+            )
+            for e in lint_errors:
+                logger.error("  %s", e)
+        else:
+            compiler.git_commit(f"Auto-update: {date_str}")
+            logger.info("Wiki compiled, linted, and committed")
+
+            # Process any pending inbox notes (frictionless ambient capture)
+            # Only run on clean wiki state — don't compound broken link errors
+            consolidator = MemoryConsolidator(brain_path=str(wiki_path), llm_client=llm_client)
+            consolidated_count = consolidator.run()
+            if consolidated_count:
+                logger.info("Consolidated %d facts from inbox", consolidated_count)
+
+        # Rebuild cognee index over compiled/ (lifecycle-aware pages)
         dataset_name = wiki_config.get("dataset_name", "sammurai_wiki")
         store = CogneeStore(wiki_path=str(wiki_path), dataset_name=dataset_name, config=config)
         count = store.rebuild_index()

@@ -20,11 +20,11 @@ def _setup_cognee_env_early() -> None:
     defaults = {
         "LLM_API_KEY": litellm_api_key,
         "LLM_ENDPOINT": litellm_base_url,
-        "LLM_MODEL": "openai/gemini-2.5-flash",
+        "LLM_MODEL": "gemini-2.5-flash",
         "LLM_PROVIDER": "custom",
         "EMBEDDING_API_KEY": litellm_api_key,
         "EMBEDDING_ENDPOINT": litellm_base_url,
-        "EMBEDDING_MODEL": "openai/text-embedding-3-small",
+        "EMBEDDING_MODEL": "text-embedding-3-small",
         "EMBEDDING_PROVIDER": "custom",
         "EMBEDDING_DIMENSIONS": "1536",
         "COGNEE_SKIP_CONNECTION_TEST": "true",
@@ -55,11 +55,12 @@ def _setup_cognee_env(config: Optional[dict] = None) -> None:
         llm_model = os.environ.get("LLM_MODEL_NAME", "gemini-2.5-flash")
         embed_model = "text-embedding-3-small"
 
-    # litellm proxy requires "openai/" prefix for custom endpoints
-    if "/" not in llm_model:
-        llm_model = f"openai/{llm_model}"
-    if "/" not in embed_model:
-        embed_model = f"openai/{embed_model}"
+    # Strip provider prefix — LiteLLM proxy identifies models by name only,
+    # not "openai/model-name". Adding the prefix causes 400 "Invalid model name".
+    if "/" in llm_model:
+        llm_model = llm_model.split("/", 1)[1]
+    if "/" in embed_model:
+        embed_model = embed_model.split("/", 1)[1]
 
     defaults = {
         "LLM_API_KEY": litellm_api_key,
@@ -120,14 +121,27 @@ class CogneeStore:
         """Semantic + graph search over the wiki."""
         return _run(self._search(query))
 
+    _NO_INFO_PHRASES = (
+        "no information",
+        "not available",
+        "not found",
+        "i don't have",
+        "no data",
+    )
+
     def get_relevant_context(self, query: str, context_limit: int = 3000) -> str:
         """Search and format results as a plain-text context string."""
         results = self.search(query)
         chunks = []
         total = 0
         for r in results:
-            for text in r.get("search_result", []):
+            for text in r.get("search_result", []) if isinstance(r, dict) else [str(r)]:
                 if not text:
+                    continue
+                # Drop LLM-fabricated "No information" sentences from SUMMARIES mode
+                text_lower = text.lower()
+                if any(p in text_lower for p in self._NO_INFO_PHRASES) and len(text) < 300:
+                    logger.debug("Filtered fabricated no-info result: %s", text[:80])
                     continue
                 if total + len(text) > context_limit:
                     break
@@ -192,18 +206,34 @@ class CogneeStore:
                 except Exception:
                     pass
 
-        # Cache miss - query cognee
-        results = await cognee.search(query, datasets=self.dataset_name)
-        results = results if results else []
+        # Cache miss — query cognee
+        # CHUNKS returns raw text excerpts; SUMMARIES uses LLM which hallucinates
+        # "No information available" strings that poison the context window.
+        # Try CHUNKS first; fall back to SUMMARIES only if CHUNKS returns nothing.
+        from cognee.api.v1.search.search import SearchType
+
+        results = []
+        for search_type in (SearchType.CHUNKS, SearchType.SUMMARIES):
+            try:
+                raw = await cognee.search(
+                    query,
+                    query_type=search_type,
+                    datasets=[self.dataset_name],
+                )
+                if raw:
+                    results = raw
+                    logger.info("Cognee %s: %d results", search_type.name, len(raw))
+                    break
+            except Exception as e:
+                logger.warning("Cognee %s search failed: %s", search_type.name, e)
 
         # Save cache
         try:
-            # Strip non-JSON-serializable fields (UUIDs)
             cacheable = []
             for r in results:
                 cached_r = {
-                    "dataset_name": r.get("dataset_name"),
-                    "search_result": r.get("search_result", []),
+                    "dataset_name": getattr(r, "dataset_name", r.get("dataset_name") if isinstance(r, dict) else None),
+                    "search_result": r.get("search_result", []) if isinstance(r, dict) else [str(r)],
                 }
                 cacheable.append(cached_r)
             with open(cache_file, "w") as f:
