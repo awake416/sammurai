@@ -54,10 +54,12 @@ def test_llm_client_extract_batch_parallel():
     messages = [{"message": f"msg {i}"} for i in range(10)]
 
     with patch.object(
-        client, "_extract_batch_single", return_value=[{"task": "test"}]
+        client,
+        "_extract_batch_single",
+        return_value={"action_items": [{"task": "test"}], "entities": []},
     ) as mock_extract_single:
         results = client.extract_batch(messages, batch_size=2, parallel_batches=3)
 
         # 10 messages, batch_size 2 => 5 batches
         assert mock_extract_single.call_count == 5
-        assert len(results) == 5
+        assert len(results["action_items"]) == 5

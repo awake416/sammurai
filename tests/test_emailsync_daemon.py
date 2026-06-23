@@ -45,10 +45,11 @@ def test_main_config_disabled():
     """main exits early if email.enabled is false."""
     config = {"email": {"enabled": False}}
 
-    with patch("src.backend.emailsync_daemon.load_config", return_value=config):
-        with pytest.raises(SystemExit) as excinfo:
-            main()
-        assert excinfo.value.code == 0
+    with patch("sys.argv", ["emailsync-daemon"]):
+        with patch("src.backend.emailsync_daemon.load_config", return_value=config):
+            with pytest.raises(SystemExit) as excinfo:
+                main()
+            assert excinfo.value.code == 0
 
 
 def test_main_successful_sync():
@@ -87,19 +88,20 @@ def test_main_successful_sync():
     )
     mock_email_db._get_connection.return_value = mock_conn
 
-    with patch("src.backend.emailsync_daemon.load_config", return_value=config):
-        with patch(
-            "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
-        ):
+    with patch("sys.argv", ["emailsync-daemon"]):
+        with patch("src.backend.emailsync_daemon.load_config", return_value=config):
             with patch(
-                "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
             ):
-                with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
-                    # Stop after first iteration
-                    mock_sleep.side_effect = KeyboardInterrupt
+                with patch(
+                    "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                ):
+                    with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
+                        # Stop after first iteration
+                        mock_sleep.side_effect = KeyboardInterrupt
 
-                    with pytest.raises(KeyboardInterrupt):
-                        main()
+                        with pytest.raises(KeyboardInterrupt):
+                            main()
 
     # Verify transaction
     mock_conn.execute.assert_any_call("BEGIN")
@@ -130,19 +132,20 @@ def test_main_oauth_token_expired():
 
     mock_gmail.fetch_messages.side_effect = RefreshError("Token expired")
 
-    with patch("src.backend.emailsync_daemon.load_config", return_value=config):
-        with patch(
-            "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
-        ):
+    with patch("sys.argv", ["emailsync-daemon"]):
+        with patch("src.backend.emailsync_daemon.load_config", return_value=config):
             with patch(
-                "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
             ):
-                with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
-                    # Stop after first error
-                    mock_sleep.side_effect = KeyboardInterrupt
+                with patch(
+                    "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                ):
+                    with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
+                        # Stop after first error
+                        mock_sleep.side_effect = KeyboardInterrupt
 
-                    with pytest.raises(KeyboardInterrupt):
-                        main()
+                        with pytest.raises(KeyboardInterrupt):
+                            main()
 
     # Verify error was logged but daemon continued
     mock_gmail.fetch_messages.assert_called_once()
@@ -173,18 +176,19 @@ def test_main_gmail_api_down():
         error_resp, b"Service unavailable"
     )
 
-    with patch("src.backend.emailsync_daemon.load_config", return_value=config):
-        with patch(
-            "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
-        ):
+    with patch("sys.argv", ["emailsync-daemon"]):
+        with patch("src.backend.emailsync_daemon.load_config", return_value=config):
             with patch(
-                "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
             ):
-                with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
-                    mock_sleep.side_effect = KeyboardInterrupt
+                with patch(
+                    "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                ):
+                    with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
+                        mock_sleep.side_effect = KeyboardInterrupt
 
-                    with pytest.raises(KeyboardInterrupt):
-                        main()
+                        with pytest.raises(KeyboardInterrupt):
+                            main()
 
     # Daemon should continue after error
     mock_gmail.fetch_messages.assert_called_once()
@@ -219,18 +223,19 @@ def test_main_transaction_rollback_on_error():
     # Simulate insert error
     mock_email_db.insert_message.side_effect = Exception("DB write error")
 
-    with patch("src.backend.emailsync_daemon.load_config", return_value=config):
-        with patch(
-            "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
-        ):
+    with patch("sys.argv", ["emailsync-daemon"]):
+        with patch("src.backend.emailsync_daemon.load_config", return_value=config):
             with patch(
-                "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
             ):
-                with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
-                    mock_sleep.side_effect = KeyboardInterrupt
+                with patch(
+                    "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                ):
+                    with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
+                        mock_sleep.side_effect = KeyboardInterrupt
 
-                    with pytest.raises(KeyboardInterrupt):
-                        main()
+                        with pytest.raises(KeyboardInterrupt):
+                            main()
 
     # Verify rollback called
     mock_conn.rollback.assert_called_once()
@@ -261,18 +266,19 @@ def test_main_no_new_messages():
     mock_gmail.fetch_messages.return_value = ([], "67890")
     mock_email_db._get_connection.return_value = mock_conn
 
-    with patch("src.backend.emailsync_daemon.load_config", return_value=config):
-        with patch(
-            "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
-        ):
+    with patch("sys.argv", ["emailsync-daemon"]):
+        with patch("src.backend.emailsync_daemon.load_config", return_value=config):
             with patch(
-                "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                "src.backend.emailsync_daemon.GmailClient", return_value=mock_gmail
             ):
-                with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
-                    mock_sleep.side_effect = KeyboardInterrupt
+                with patch(
+                    "src.backend.emailsync_daemon.EmailDB", return_value=mock_email_db
+                ):
+                    with patch("src.backend.emailsync_daemon.time.sleep") as mock_sleep:
+                        mock_sleep.side_effect = KeyboardInterrupt
 
-                    with pytest.raises(KeyboardInterrupt):
-                        main()
+                        with pytest.raises(KeyboardInterrupt):
+                            main()
 
     # Verify historyId updated
     mock_email_db.update_history_id.assert_called_with("67890")

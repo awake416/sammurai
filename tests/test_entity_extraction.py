@@ -275,9 +275,9 @@ def test_entity_extraction_integration(temp_entity_store):
 
     entities = result["entities"]
     if entities:
-        # Store entities
+        # First pass: add all entities so relations can find their targets
         for entity in entities:
-            entity_id = temp_entity_store.add_entity(
+            temp_entity_store.add_entity(
                 entity_name=entity["entity_name"],
                 entity_type=entity["entity_type"],
                 metadata=entity.get("metadata", {}),
@@ -286,7 +286,8 @@ def test_entity_extraction_integration(temp_entity_store):
                 message_timestamp=entity.get("timestamp"),
             )
 
-            # Add relations
+        # Second pass: add relations (targets already exist)
+        for entity in entities:
             for relation in entity.get("relations", []):
                 temp_entity_store.add_relation(
                     source_name=entity["entity_name"],

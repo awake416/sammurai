@@ -152,7 +152,7 @@ def test_topics_only_happy_path(
     ]
 
     mock_llm_client = mock_llm_client_class.return_value
-    mock_llm_client.extract_batch.return_value = []
+    mock_llm_client.extract_batch.return_value = {"action_items": [], "entities": []}
 
     mock_topic_extractor = mock_topic_extractor_class.return_value
     mock_topic_extractor.extract_topics.return_value = []

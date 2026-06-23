@@ -81,10 +81,10 @@ def test_extract_batch_true_batching(mock_completion):
         "Should batch all messages in a single LLM call"
     )
 
-    assert len(result) == 1
-    assert result[0]["task"] == "Review doc"
-    assert result[0]["assignee"] == "John"
-    assert result[0]["original_message"] == "John please review the doc"
+    assert len(result["action_items"]) == 1
+    assert result["action_items"][0]["task"] == "Review doc"
+    assert result["action_items"][0]["assignee"] == "John"
+    assert result["action_items"][0]["original_message"] == "John please review the doc"
 
 
 def test_llm_client_model_passing():
@@ -148,7 +148,7 @@ def test_llm_client_rejects_jokes(mock_completion):
     result_2 = client.extract_batch(messages)
 
     # Should be empty because confidence 0.6 < 0.75
-    assert len(result_2) == 0
+    assert len(result_2["action_items"]) == 0
 
 
 @patch("src.backend.llm_client.litellm.completion")

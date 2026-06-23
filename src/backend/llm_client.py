@@ -569,10 +569,14 @@ ENTITY EXTRACTION RULES:
             # Format timestamp to date only if present
             if timestamp:
                 try:
-                    dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    if isinstance(timestamp, int):
+                        dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                    else:
+                        dt = datetime.fromisoformat(str(timestamp).replace('Z', '+00:00'))
                     date_str = dt.strftime('%Y-%m-%d')
-                except (ValueError, AttributeError):
-                    date_str = timestamp[:10] if len(timestamp) >= 10 else timestamp
+                except (ValueError, AttributeError, OSError):
+                    ts_str = str(timestamp)
+                    date_str = ts_str[:10] if len(ts_str) >= 10 else ts_str
             else:
                 date_str = ''
 
