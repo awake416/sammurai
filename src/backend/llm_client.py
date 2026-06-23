@@ -278,8 +278,8 @@ If it's NOT an action item, respond with:
 
     def generate_json(
         self, system_prompt: str, user_message: str, temperature: float = 0.1
-    ) -> Optional[dict]:
-        """Generic method to generate JSON from LLM."""
+    ) -> Optional[dict | list]:
+        """Generic method to generate JSON from LLM. Returns dict or list."""
         try:
             logger.debug(
                 f"Sending generic JSON request to {self.base_url} with model {self.model}"
@@ -302,14 +302,22 @@ If it's NOT an action item, respond with:
                 logger.warning("LLM response content is None")
                 return None
 
-            # Parse JSON from response
-            json_start = content.find("{")
-            json_end = content.rfind("}") + 1
-            if json_start < 0 or json_end <= json_start:
-                logger.warning("Could not parse JSON from LLM response")
-                return None
+            # Prefer array if it appears before the first object
+            arr_start = content.find("[")
+            obj_start = content.find("{")
 
-            return json.loads(content[json_start:json_end])
+            if arr_start >= 0 and (obj_start < 0 or arr_start < obj_start):
+                arr_end = content.rfind("]") + 1
+                if arr_end > arr_start:
+                    return json.loads(content[arr_start:arr_end])
+
+            if obj_start >= 0:
+                obj_end = content.rfind("}") + 1
+                if obj_end > obj_start:
+                    return json.loads(content[obj_start:obj_end])
+
+            logger.warning("Could not parse JSON from LLM response")
+            return None
 
         except (KeyError, json.JSONDecodeError) as e:
             logger.error(f"Failed to parse LLM response: {e}")

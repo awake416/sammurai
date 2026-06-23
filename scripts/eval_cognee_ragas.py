@@ -197,7 +197,8 @@ def main():
 
         ctx_preview = (context[:120] + "...") if context else "(EMPTY — no results)"
         print(f"  Context ({len(context)} chars, {latency:.1f}s): {ctx_preview}")
-        print(f"  Recall:    {recall:.2f} | Precision: {precision:.2f} | LLM relevancy: {relevancy:.2f if relevancy >= 0 else 'N/A'}")
+        rel_str = f"{relevancy:.2f}" if relevancy >= 0 else "N/A"
+        print(f"  Recall:    {recall:.2f} | Precision: {precision:.2f} | LLM relevancy: {rel_str}")
         print()
 
         results.append({

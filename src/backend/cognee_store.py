@@ -1,10 +1,4 @@
-"""Cognee-backed knowledge store: wiki ingestion + semantic search.
-
-Uses cognee's pipeline infrastructure (classify → chunk → embed → store)
-but skips the LLM graph-extraction step (extract_graph_and_summarize).
-That step times out on our LiteLLM proxy at ~1800s per call for large
-wikis. CHUNKS search doesn't need the knowledge graph.
-"""
+"""Cognee-backed knowledge store: wiki ingestion + semantic search."""
 
 import asyncio
 import logging
@@ -21,24 +15,44 @@ logger = logging.getLogger(__name__)
 def _configure_cognee() -> None:
     """Configure cognee via its config API (not env vars — avoids lru_cache timing issues)."""
     import cognee
+    from dotenv import load_dotenv
 
-    api_key = os.environ.get("LITELLM_API_KEY", "")
-    base_url = os.environ.get("LITELLM_BASE_URL", "")
+    # Load sammurai-brain .env first (contains GEMINI_API_KEY for personal use)
+    brain_env = Path.home() / "sammurai-brain" / ".env"
+    if brain_env.exists():
+        load_dotenv(brain_env, override=False)
 
-    # LLM (only used for optional graph extraction — we skip it, but must be valid)
-    cognee.config.set_llm_provider("custom")
-    cognee.config.set_llm_endpoint(base_url)
-    cognee.config.set_llm_api_key(api_key)
-    cognee.config.set_llm_model("gemini-2.5-flash")
+    gemini_key = os.environ.get("GEMINI_API_KEY", "")
+    litellm_key = os.environ.get("LITELLM_API_KEY", "")
+    litellm_url = os.environ.get("LITELLM_BASE_URL", "")
 
-    # Embeddings
-    cognee.config.set_embedding_provider("litellm")
-    cognee.config.set_embedding_endpoint(base_url)
-    cognee.config.set_embedding_api_key(api_key)
-    cognee.config.set_embedding_model("text-embedding-3-small")
-    cognee.config.set_embedding_dimensions(1536)
+    if litellm_key and litellm_url:
+        # LiteLLM proxy — openai/ prefix forces routing to api_base, not Vertex AI
+        cognee.config.set_llm_provider("custom")
+        cognee.config.set_llm_endpoint(litellm_url)
+        cognee.config.set_llm_api_key(litellm_key)
+        cognee.config.set_llm_model("openai/gemini-3.5-flash")
+    elif gemini_key:
+        # Personal Gemini key fallback (free tier — rate-limited for large wikis)
+        cognee.config.set_llm_provider("gemini")
+        cognee.config.set_llm_api_key(gemini_key)
+        cognee.config.set_llm_model("gemini/gemini-2.0-flash")
 
-    # Skip the LLM connection test (it times out without network warmup)
+    # Embeddings — only via LiteLLM proxy; bare model name routes to wrong provider
+    # openai/ prefix forces the proxy to use api_base instead of direct OpenAI/Vertex
+    if litellm_key and litellm_url:
+        cognee.config.set_embedding_provider("litellm")
+        cognee.config.set_embedding_endpoint(litellm_url)
+        cognee.config.set_embedding_api_key(litellm_key)
+        cognee.config.set_embedding_model("openai/text-embedding-3-small")
+        cognee.config.set_embedding_dimensions(1536)
+    elif gemini_key:
+        # Gemini embeddings fallback — uses text-embedding-004
+        cognee.config.set_embedding_provider("gemini")
+        cognee.config.set_embedding_api_key(gemini_key)
+        cognee.config.set_embedding_model("models/text-embedding-004")
+        cognee.config.set_embedding_dimensions(768)
+
     os.environ["COGNEE_SKIP_CONNECTION_TEST"] = "true"
 
 
@@ -114,33 +128,39 @@ class CogneeStore:
                 total += len(text)
         return "\n\n".join(chunks)
 
-    async def _run_pipeline_no_graph(self, datasets) -> None:
-        """Run cognee's ingest pipeline skipping the LLM graph-extraction step."""
+    async def _run_pipeline(self, datasets) -> None:
+        """Run cognee's ingest pipeline with graph extraction + 512-token chunks.
+
+        Uses custom task list to control chunk size and avoid embed_triplets
+        which causes excessive embedding calls when graph edges scale up.
+        """
         import cognee
         from cognee.modules.chunking.TextChunker import TextChunker
         from cognee.modules.pipelines import run_pipeline
         from cognee.modules.pipelines.layers.pipeline_execution_mode import get_pipeline_executor
         from cognee.modules.pipelines.tasks.task import Task
         from cognee.modules.users.methods import get_default_user
+        from cognee.shared.data_models import KnowledgeGraph
         from cognee.tasks.documents import classify_documents, extract_chunks_from_documents
+        from cognee.tasks.graph.extract_graph_and_summarize import extract_graph_and_summarize
         from cognee.tasks.ingestion.extract_dlt_fk_edges import extract_dlt_fk_edges
         from cognee.tasks.storage import add_data_points
-        # (vector_db_config and graph_db_config omitted — pass None to use defaults)
+        from cognee.modules.ontology.get_default_ontology_resolver import get_default_ontology_resolver
+
         user = await get_default_user()
+        config = {"ontology_config": {"ontology_resolver": get_default_ontology_resolver()}}
 
         tasks = [
             Task(classify_documents),
+            Task(extract_chunks_from_documents, max_chunk_size=512, chunker=TextChunker),
             Task(
-                extract_chunks_from_documents,
-                max_chunk_size=512,
-                chunker=TextChunker,
+                extract_graph_and_summarize,
+                graph_model=KnowledgeGraph,
+                config=config,
+                task_config={"batch_size": 20},
             ),
-            # No extract_graph_and_summarize — avoids LLM calls that timeout
-            Task(
-                add_data_points,
-                embed_triplets=False,
-                task_config={"batch_size": 50},
-            ),
+            # embed_triplets=False avoids embedding graph edges (expensive + error-prone)
+            Task(add_data_points, embed_triplets=False, task_config={"batch_size": 50}),
             Task(extract_dlt_fk_edges),
         ]
 
@@ -152,10 +172,10 @@ class CogneeStore:
             datasets=datasets if isinstance(datasets, list) else [datasets],
             vector_db_config=None,
             graph_db_config=None,
-            incremental_loading=True,
+            incremental_loading=False,
             use_pipeline_cache=True,
             pipeline_name="cognify_pipeline",
-            data_per_batch=20,
+            data_per_batch=10,
         )
 
     async def _ingest_wiki(self) -> int:
@@ -176,8 +196,8 @@ class CogneeStore:
             text = md_file.read_text(encoding="utf-8")
             await cognee.add(text, dataset_name=self.dataset_name)
 
-        await self._run_pipeline_no_graph(self.dataset_name)
-        logger.info("Ingested %d wiki files into cognee", len(md_files))
+        await self._run_pipeline(self.dataset_name)
+        logger.info("Ingested %d wiki files into cognee (with graph extraction)", len(md_files))
         return len(md_files)
 
     async def _rebuild_index(self) -> int:
