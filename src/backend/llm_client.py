@@ -1,4 +1,9 @@
-"""LLM Client for WhatsApp Action Item Extraction using LiteLLM."""
+"""LLM Client for WhatsApp Action Item Extraction using LiteLLM.
+
+Two modes (auto-detected from env):
+  Gemini direct   — set GEMINI_API_KEY (public/personal default)
+  LiteLLM proxy   — set LITELLM_BASE_URL + LITELLM_API_KEY (enterprise)
+"""
 
 import os
 import json
@@ -124,45 +129,44 @@ Rules:
         self,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
-        model: str = "claude-sonnet-4.6",
+        model: str = "gemini/gemini-2.0-flash",
         confidence_threshold: float = 0.75,
     ):
-        self.base_url = (base_url or os.environ.get("LITELLM_BASE_URL") or "").rstrip(
-            "/"
-        )
-        self.api_key = api_key or os.environ.get("LITELLM_API_KEY")
         self.model = model
         self.confidence_threshold = confidence_threshold
 
-        if not self.base_url:
+        litellm_url = (base_url or os.environ.get("LITELLM_BASE_URL") or "").rstrip("/")
+        litellm_key = api_key or os.environ.get("LITELLM_API_KEY")
+        gemini_key = os.environ.get("GEMINI_API_KEY")
+
+        if litellm_url and litellm_key:
+            # Enterprise: LiteLLM proxy (openai/ prefix routes to api_base, not Vertex AI)
+            from urllib.parse import urlparse
+            parsed = urlparse(litellm_url)
+            is_local = parsed.hostname in ("localhost", "127.0.0.1", "::1")
+            if not is_local and not litellm_url.startswith("https://"):
+                raise ValueError(
+                    f"LLM Configuration Error: Insecure LITELLM_BASE_URL '{litellm_url}'. "
+                    "Production URLs must use https://."
+                )
+            self.base_url = litellm_url
+            self.api_key = litellm_key
+            self._call_kwargs: dict = {
+                "base_url": self.base_url,
+                "api_key": self.api_key,
+                "custom_llm_provider": "openai",
+            }
+        elif gemini_key:
+            # Personal/public: Gemini direct via litellm (model prefix = gemini/)
+            self.base_url = None
+            self.api_key = gemini_key
+            self._call_kwargs = {"api_key": self.api_key}
+        else:
             raise ValueError(
-                "LLM Configuration Error: LiteLLM base URL is missing. "
-                "Please set the LITELLM_BASE_URL environment variable."
+                "LLM Configuration Error: No LLM credentials found. "
+                "Set GEMINI_API_KEY for personal use, or "
+                "LITELLM_BASE_URL + LITELLM_API_KEY for enterprise proxy."
             )
-
-        # Enforce HTTPS for base_url (except for localhost/127.0.0.1)
-        from urllib.parse import urlparse
-
-        parsed_base = urlparse(self.base_url)
-        is_local = parsed_base.hostname in ("localhost", "127.0.0.1", "::1")
-        if not is_local and not self.base_url.startswith("https://"):
-            raise ValueError(
-                f"LLM Configuration Error: Insecure LITELLM_BASE_URL '{self.base_url}'. "
-                "Production URLs must use https://."
-            )
-
-        if not self.api_key:
-            raise ValueError(
-                "LLM Authentication Error: API key is missing. "
-                "Please set the LITELLM_API_KEY environment variable (e.g., export LITELLM_API_KEY='your-key-here')."
-            )
-
-    def _get_completions_url(self) -> str:
-        """Get the proper chat completions URL, handling /v1 suffix correctly."""
-        # If base_url already ends with /v1, don't add it again
-        if self.base_url.endswith("/v1"):
-            return f"{self.base_url}/chat/completions"
-        return f"{self.base_url}/v1/chat/completions"
 
     def extract_action_item(
         self, message: str, sender: Optional[str] = None
@@ -211,7 +215,7 @@ If it's NOT an action item, respond with:
         logger.debug(f"LLM Prompt: {redacted_prompt[:500]}...")
 
         try:
-            logger.debug(f"Sending request to {self.base_url} with model {self.model}")
+            logger.debug(f"Sending request with model {self.model}")
             response = litellm.completion(
                 model=self.model,
                 messages=[
@@ -219,10 +223,8 @@ If it's NOT an action item, respond with:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=0.1,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                custom_llm_provider="openai",
                 timeout=120,
+                **self._call_kwargs,
             )
 
             content = response.choices[0].message.content
@@ -281,9 +283,7 @@ If it's NOT an action item, respond with:
     ) -> Optional[dict | list]:
         """Generic method to generate JSON from LLM. Returns dict or list."""
         try:
-            logger.debug(
-                f"Sending generic JSON request to {self.base_url} with model {self.model}"
-            )
+            logger.debug(f"Sending generic JSON request with model {self.model}")
             response = litellm.completion(
                 model=self.model,
                 messages=[
@@ -291,10 +291,8 @@ If it's NOT an action item, respond with:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=temperature,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                custom_llm_provider="openai",
                 timeout=120,
+                **self._call_kwargs,
             )
 
             content = response.choices[0].message.content
@@ -349,10 +347,8 @@ If it's NOT an action item, respond with:
                 tools=tools,
                 tool_choice="auto",
                 temperature=0.1,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                custom_llm_provider="openai",
                 timeout=120,
+                **self._call_kwargs,
             )
             return response
         except Exception as e:
@@ -594,9 +590,7 @@ ENTITY EXTRACTION RULES:
         logger.debug(f"LLM Batch Prompt: {redacted_prompt[:1000]}...")
 
         try:
-            logger.debug(
-                f"Sending batch request to {self.base_url} with model {self.model}"
-            )
+            logger.debug(f"Sending batch request with model {self.model}")
             response = litellm.completion(
                 model=self.model,
                 messages=[
@@ -604,10 +598,8 @@ ENTITY EXTRACTION RULES:
                     {"role": "user", "content": user_message},
                 ],
                 temperature=0.1,
-                api_key=self.api_key,
-                base_url=self.base_url,
-                custom_llm_provider="openai",
                 timeout=60,
+                **self._call_kwargs,
             )
 
             content = response.choices[0].message.content

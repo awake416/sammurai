@@ -223,6 +223,7 @@ logs/
 # Environment overrides (keep .env for template)
 .env.local
 .env.*
+!.env.example
 
 # IDE
 .vscode/
