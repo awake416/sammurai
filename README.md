@@ -32,7 +32,7 @@ You never file, tag, or organize a note. Messages and emails go in; an interconn
 Every integration funnels into **one** pipeline:
 
 1. **Ingest** — background services sync messages/emails into local SQLite DBs.
-2. **Extract** — an LLM (via LiteLLM) pulls topics, action items, and document/URL summaries.
+2. **Extract** — an LLM (Gemini by default, or any LiteLLM-compatible endpoint) pulls topics, action items, and document/URL summaries.
 3. **Digest** — daily output is written to `raw/digest_YYYY-MM-DD.txt`.
 4. **Compile** — the wiki compiler updates `tasks.md`, concept pages, and `index.md`, then `git commit`s the change (so an LLM mistake can never silently destroy history).
 5. **Index** — cognee rebuilds the RAG index (semantic + graph) over the wiki.
@@ -88,7 +88,7 @@ Each has its own systemd digest timer (`sammurai-digest-personal.timer`, `sammur
 - **Python 3.12+**
 - **SQLite3** (bundled with Python)
 - At least one integration: **wacli** (WhatsApp) and/or a **Gmail account** with API access
-- An LLM endpoint reachable via **LiteLLM**
+- A **Gemini API key** (free at [aistudio.google.com](https://aistudio.google.com/apikey)) — or any LiteLLM-compatible endpoint
 - **cognee 1.1.0+** for RAG indexing
 
 ### Installation
@@ -104,12 +104,18 @@ pip3 install -r requirements.txt
 
 ### Configure your LLM provider
 
+**Option A — Gemini (default, free tier available):**
+```bash
+export GEMINI_API_KEY="your-key"   # get one at https://aistudio.google.com/apikey
+```
+
+**Option B — LiteLLM proxy (enterprise / self-hosted):**
 ```bash
 export LITELLM_BASE_URL="https://your-litellm-url.com"
 export LITELLM_API_KEY="your-api-key"
 ```
 
-Then edit `config.yaml` (model, confidence threshold, batch sizes, groups, parallelism). Default model: `claude-sonnet-4.6`.
+Then edit `config.yaml` (model, confidence threshold, batch sizes, groups, parallelism). Default model: `gemini/gemini-2.0-flash`.
 
 ### Run the full pipeline
 
@@ -226,7 +232,7 @@ The daemon refreshes its access token automatically. If the **refresh token** is
 
 ```yaml
 llm:
-  model: "claude-sonnet-4.6"   # LiteLLM-routed model
+  model: "gemini/gemini-2.0-flash"   # Gemini default; use openai/model-name for LiteLLM proxy
   confidence_threshold: 0.75   # drop low-confidence extractions
   batch_size: 10
 
@@ -272,10 +278,9 @@ email:
 
 | Variable | Description |
 |----------|-------------|
-| `LITELLM_BASE_URL` | Base URL for LiteLLM proxy or custom endpoint |
-| `LITELLM_API_KEY` | API key for your LLM provider |
-| `OPENAI_API_KEY` | OpenAI API key (if using OpenAI directly) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (if using Claude directly) |
+| `GEMINI_API_KEY` | Gemini API key — primary default ([get one free](https://aistudio.google.com/apikey)) |
+| `LITELLM_BASE_URL` | LiteLLM proxy URL — enterprise/self-hosted override |
+| `LITELLM_API_KEY` | API key for LiteLLM proxy (required if `LITELLM_BASE_URL` is set) |
 
 ## Querying Your Brain (Hermes Integration)
 

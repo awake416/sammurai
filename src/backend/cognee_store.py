@@ -72,7 +72,7 @@ def _run(coro):
 
 
 class CogneeStore:
-    """Wiki knowledge store backed by cognee (vector search, no graph extraction)."""
+    """Wiki knowledge store backed by cognee (semantic + graph search)."""
 
     def __init__(
         self,
