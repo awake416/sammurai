@@ -172,7 +172,7 @@ class CogneeStore:
             datasets=datasets if isinstance(datasets, list) else [datasets],
             vector_db_config=None,
             graph_db_config=None,
-            incremental_loading=False,
+            incremental_loading=True,
             use_pipeline_cache=True,
             pipeline_name="cognify_pipeline",
             data_per_batch=10,
